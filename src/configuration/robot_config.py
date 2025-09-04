@@ -2,7 +2,7 @@
 from vex import *
 
 # Project imports
-from drivetrain import Drivetrain
+from abstractions.drivetrain import Drivetrain
 from custom_types.custom_controller import CustomController
 
 
