@@ -17,3 +17,11 @@ class ControllerSettings:
     FORWARD_BACKWARD_AXIS = 2
     STRAFE_AXIS = 1
     TURN_AXIS = 4
+
+class LoggingSettings:
+    "Logging configuration settings"
+    
+    SAVE_LOGS = False           # Enable/disable saving logs to file
+    LOG_DIR = "/sd/logs/"       # Directory to save log files
+    MAX_LOG_FILES = 20          # Maximum number of log files to keep
+    DUMP_INTERVAL = 5           # Interval in seconds to auto-dump logs to file
