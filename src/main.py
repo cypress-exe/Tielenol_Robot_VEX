@@ -3,18 +3,12 @@
 # 	Module:       main.py (Monolithic)                                         #
 # 	Author:       Dirk                                                         #
 # 	Created:      9/4/2025, 2:20:48 PM                                         #
-# 	Description:  V5 project - All modules combined into single file          #
+# 	Description:  V5 project - All modules combined into single file           #
 #                                                                              #
 # ---------------------------------------------------------------------------- #
 
 # Library imports
 from vex import *
-import time
-import os
-import glob
-import atexit
-from datetime import datetime
-from enum import Enum
 
 # =============================================================================
 # SETTINGS CONFIGURATION
@@ -45,16 +39,16 @@ class LoggingSettings:
 # LOGGING SYSTEM
 # =============================================================================
 
-class LogLevel(Enum):
-    """Log levels in order of severity"""
+# Log levels in order of severity (constants instead of Enum)
+class LogLevel:
     DEBUG = 1
     INFO = 2
     WARNING = 3
     ERROR = 4
     CRITICAL = 5
 
-class ScreenTarget(Enum):
-    """Screen output targets"""
+# Screen output targets (constants instead of Enum)  
+class ScreenTarget:
     BRAIN = 1
     CONTROLLER = 2
     BOTH = 3
@@ -65,80 +59,46 @@ class Logger:
         self.brain = brain_instance
         self.controller = controller_instance
         self.buffer = []
-        self.last_dump = time.time()
-        self.dump_interval = dump_interval or LoggingSettings.DUMP_INTERVAL
+        self.last_dump = 0  # Use brain timer instead of time.time()
+        if dump_interval is None:
+            self.dump_interval = LoggingSettings.DUMP_INTERVAL
+        else:
+            self.dump_interval = dump_interval
         self.current_log_level = LogLevel.INFO
         
         # Screen management
         self.brain_line = 1
         self.max_brain_lines = max_brain_lines
         
-        # File management
-        self.save_logs = LoggingSettings.SAVE_LOGS
-        if self.save_logs:
-            self.log_dir = LoggingSettings.LOG_DIR
-            self.log_file_path = self._create_log_file()
-            # Cleanup old logs
-            self._cleanup_old_logs()
-        else:
-            self.log_file_path = ""
-        
-        # Register cleanup on exit
-        atexit.register(self._final_dump)
+        # File management disabled for VEX compatibility
+        self.save_logs = False  # Always disabled for VEX
+        self.log_file_path = ""
 
-    def _create_log_file(self) -> str:
-        """Create a new log file with timestamp"""
-        if not self.save_logs: return ""
-
-        # Ensure log directory exists
-        os.makedirs(self.log_dir, exist_ok=True)
-        
-        # Create timestamp for filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_filename = f"robot_log_{timestamp}.txt"
-        log_path = os.path.join(self.log_dir, log_filename)
-        
-        # Create initial log entry
-        with open(log_path, 'w') as f:
-            f.write(f"=== Robot Log Started at {datetime.now().isoformat()} ===\n")
-            f.write("=" * 50 + "\n\n")
-        
-        return log_path
+    def _create_log_file(self):
+        """Stub - file I/O not supported on VEX"""
+        return ""
 
     def _cleanup_old_logs(self):
-        """Remove old log files, keeping only the most recent MAX_LOG_FILES"""
-        if not self.save_logs: return
-        try:
-            log_pattern = os.path.join(self.log_dir, "robot_log_*.txt")
-            log_files = glob.glob(log_pattern)
-            
-            if len(log_files) > LoggingSettings.MAX_LOG_FILES:
-                # Sort by modification time (oldest first)
-                log_files.sort(key=os.path.getmtime)
-                
-                # Remove oldest files
-                files_to_remove = log_files[:-LoggingSettings.MAX_LOG_FILES]
-                for file_path in files_to_remove:
-                    try:
-                        os.remove(file_path)
-                        print(f"Removed old log file: {os.path.basename(file_path)}")
-                    except Exception as e:
-                        print(f"Failed to remove {file_path}: {e}")
-        except Exception as e:
-            print(f"Log cleanup failed: {e}")
+        """Stub - file I/O not supported on VEX"""
+        pass
 
-    def set_log_level(self, level: LogLevel):
+    def set_log_level(self, level):
         """Set the minimum log level that will be processed"""
         self.current_log_level = level
-        self.info(f"Log level set to {level.name}")
+        level_names = {1: "DEBUG", 2: "INFO", 3: "WARNING", 4: "ERROR", 5: "CRITICAL"}
+        if level in level_names:
+            level_name = level_names[level]
+        else:
+            level_name = 'UNKNOWN'
+        self.info("Log level set to " + level_name)
 
-    def get_log_level(self) -> LogLevel:
+    def get_log_level(self):
         """Get the current log level"""
         return self.current_log_level
 
-    def _should_log(self, level: LogLevel) -> bool:
+    def _should_log(self, level):
         """Check if a message should be logged based on current log level"""
-        return level.value >= self.current_log_level.value
+        return level >= self.current_log_level
 
     def _log_to_brain(self, message: str):
         """Log message to brain screen with wrapping"""
@@ -159,12 +119,17 @@ class Logger:
         truncated_message = message[:19] if len(message) > 19 else message
         self.controller.screen.print(truncated_message)
 
-    def _format_message(self, level: LogLevel, message: str) -> str:
+    def _format_message(self, level, message):
         """Format message with timestamp and log level"""
         timestamp = self.brain.timer.time()  # ms since program start
-        return f"[{timestamp:8.0f}ms] [{level.name:8s}] {message}"
+        level_names = {1: "DEBUG", 2: "INFO", 3: "WARNING", 4: "ERROR", 5: "CRITICAL"}
+        if level in level_names:
+            level_name = level_names[level]
+        else:
+            level_name = 'UNKNOWN'
+        return "[" + str(int(timestamp)) + "ms] [" + level_name + "] " + message
 
-    def _log_internal(self, level: LogLevel, message: str, screen_target: ScreenTarget = ScreenTarget.BOTH):
+    def _log_internal(self, level, message, screen_target=ScreenTarget.BOTH):
         """Internal logging function"""
         if not self._should_log(level):
             return
@@ -181,69 +146,56 @@ class Logger:
             self._log_to_controller(formatted_message)
         # SILENT means no screen output
 
-        # Only add to buffer if saving logs
+        # Only add to buffer if saving logs (disabled for VEX)
         if self.save_logs:
             self.buffer.append(formatted_message)
 
-            # Auto-dump if interval passed
-            if time.time() - self.last_dump >= self.dump_interval:
+            # Auto-dump if interval passed - use brain timer instead
+            current_time = self.brain.timer.time() / 1000.0  # Convert ms to seconds
+            if current_time - self.last_dump >= self.dump_interval:
                 self.dump()
 
     # Public logging methods
-    def debug(self, message: str, screen_target: ScreenTarget = ScreenTarget.BRAIN):
+    def debug(self, message, screen_target=ScreenTarget.BRAIN):
         """Log debug message"""
         self._log_internal(LogLevel.DEBUG, message, screen_target)
 
-    def info(self, message: str, screen_target: ScreenTarget = ScreenTarget.BOTH):
+    def info(self, message, screen_target=ScreenTarget.BOTH):
         """Log info message"""
         self._log_internal(LogLevel.INFO, message, screen_target)
 
-    def warning(self, message: str, screen_target: ScreenTarget = ScreenTarget.BOTH):
+    def warning(self, message, screen_target=ScreenTarget.BOTH):
         """Log warning message"""
         self._log_internal(LogLevel.WARNING, message, screen_target)
 
-    def error(self, message: str, screen_target: ScreenTarget = ScreenTarget.BOTH):
+    def error(self, message, screen_target=ScreenTarget.BOTH):
         """Log error message"""
         self._log_internal(LogLevel.ERROR, message, screen_target)
 
-    def critical(self, message: str, screen_target: ScreenTarget = ScreenTarget.BOTH):
+    def critical(self, message, screen_target=ScreenTarget.BOTH):
         """Log critical message"""
         self._log_internal(LogLevel.CRITICAL, message, screen_target)
 
-    def silent(self, message: str, level: LogLevel = LogLevel.INFO):
+    def silent(self, message, level=LogLevel.INFO):
         """Log message silently (file only, no screen output)"""
         self._log_internal(level, message, ScreenTarget.SILENT)
 
     # Legacy compatibility method
-    def log(self, message: str, level: LogLevel = LogLevel.INFO, screen_target: ScreenTarget = ScreenTarget.BOTH):
+    def log(self, message, level=LogLevel.INFO, screen_target=ScreenTarget.BOTH):
         """General log method for backwards compatibility"""
         self._log_internal(level, message, screen_target)
 
     def dump(self):
-        """Dump buffer to log file"""
+        """Stub - file I/O not supported on VEX"""
         if not self.save_logs or not self.buffer:
             return
-            
-        try:
-            with open(self.log_file_path, "a") as f:
-                f.write("\n".join(self.buffer) + "\n")
-            self.buffer.clear()
-            self.last_dump = time.time()
-        except Exception as e:
-            print(f"Log dump failed: {e}")
+        # Clear buffer and update timestamp using brain timer    
+        self.buffer.clear()
+        self.last_dump = self.brain.timer.time() / 1000.0
 
     def _final_dump(self):
-        """Final log dump called on program exit"""
-        if self.save_logs:
-            self.info("Program ending - performing final log dump", ScreenTarget.SILENT)
-            self.dump()
-            
-            # Add final entry to log file
-            try:
-                with open(self.log_file_path, "a") as f:
-                    f.write(f"\n=== Program ended at {datetime.now().isoformat()} ===\n")
-            except Exception as e:
-                print(f"Final log entry failed: {e}")
+        """Stub - file I/O not supported on VEX"""
+        pass
 
 # =============================================================================
 # CUSTOM CONTROLLER
@@ -252,17 +204,16 @@ class Logger:
 class CustomController(Controller):
     def get_axis(self, axis):
         """Returns the specified axis of the controller"""
-        match axis:
-            case 1:
-                return self.axis1
-            case 2:
-                return self.axis2
-            case 3:
-                return self.axis3
-            case 4:
-                return self.axis4
-            case _:
-                raise ValueError("Invalid axis")
+        if axis == 1:
+            return self.axis1
+        elif axis == 2:
+            return self.axis2
+        elif axis == 3:
+            return self.axis3
+        elif axis == 4:
+            return self.axis4
+        else:
+            raise ValueError("Invalid axis")
             
     def get_axis_with_deadzone(self, axis):
         """Returns the specified axis of the controller with deadzone applied"""
@@ -297,7 +248,7 @@ class Drivetrain:
         self.strafe_motor = strafe_motor
         self.inertia_sensor = inertia_sensor
 
-    def drive(self, forward: float, strafe: float, turn: float):
+    def drive(self, forward, strafe, turn):
         """
         Drive the robot using arcade-style controls
         
@@ -325,7 +276,7 @@ class Drivetrain:
         self.right_motor.stop(brake_type)
         self.strafe_motor.stop(brake_type)
     
-    def set_velocity(self, velocity: float, units=PERCENT):
+    def set_velocity(self, velocity, units=PERCENT):
         """
         Set the default velocity for all drivetrain motors
         
@@ -388,11 +339,10 @@ def autonomous_entrypoint():
         # logger.info("Turn completed")
         
         logger.info("Autonomous routine completed successfully")
-        
+
     except Exception as e:
-        logger.error(f"Autonomous routine failed: {e}")
+        logger.error("Autonomous routine failed: " + str(e))
         logger.error("Emergency stop activated", ScreenTarget.BOTH)
-    
     logger.info("=== AUTONOMOUS MODE ENDED ===", ScreenTarget.BOTH)
 
 # Track last significant input for logging
@@ -407,8 +357,9 @@ def driver_control_entrypoint():
             drivetrain_update()
             wait(20, MSEC) # Run the loop every 20 milliseconds (50 times per second)
     except Exception as e:
-        logger.critical(f"Driver control crashed: {e}")
+        logger.critical("Driver control crashed: " + str(e))
         logger.critical("Robot stopped for safety", ScreenTarget.BOTH)
+        pass
 
 def drivetrain_update():
     """To be called repeatedly in driver control mode to update the drivetrain"""
@@ -423,7 +374,8 @@ def drivetrain_update():
     current_time = brain.timer.time()
     if (abs(forward) > 50 or abs(strafe) > 50 or abs(turn) > 50) and \
        (current_time - last_input_log_time > 2000):  # Log every 2 seconds max
-        logger.debug(f"Driver input: F:{forward:.0f} S:{strafe:.0f} T:{turn:.0f}", ScreenTarget.SILENT)
+        debug_msg = "Driver input: F:" + str(int(forward)) + " S:" + str(int(strafe)) + " T:" + str(int(turn))
+        logger.debug(debug_msg, ScreenTarget.SILENT)
         last_input_log_time = current_time
 
     # Apply speed modifiers
@@ -435,7 +387,7 @@ def drivetrain_update():
     try:
         drivetrain.drive(forward, strafe, turn)
     except Exception as e:
-        logger.error(f"Drivetrain command failed: {e}")
+        logger.error("Drivetrain command failed: " + str(e))
 
 # =============================================================================
 # MAIN PROGRAM
@@ -446,7 +398,9 @@ logger.info("Logger initialized")
 
 # Log program startup
 logger.info("=== Robot Program Starting ===")
-logger.info(f"Battery: {brain.battery.voltage():.1f}V {brain.battery.current():.1f}A")
+battery_voltage = str(round(brain.battery.voltage(), 1))
+battery_current = str(round(brain.battery.current(), 1))
+logger.info("Battery: " + battery_voltage + "V " + battery_current + "A")
 
 # Create competition instance
 comp = Competition(driver_control_entrypoint, autonomous_entrypoint)
