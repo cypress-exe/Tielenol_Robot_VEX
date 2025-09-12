@@ -30,10 +30,7 @@ class ControllerSettings:
 
 class LoggingSettings:
     """Logging configuration settings"""
-    SAVE_LOGS = False           # Enable/disable saving logs to file
-    LOG_DIR = "/sd/logs/"       # Directory to save log files
-    MAX_LOG_FILES = 20          # Maximum number of log files to keep
-    DUMP_INTERVAL = 5           # Interval in seconds to auto-dump logs to file
+    pass  # No settings needed for screen-only logging
 
 # =============================================================================
 # LOGGING SYSTEM
@@ -52,35 +49,18 @@ class ScreenTarget:
     BRAIN = 1
     CONTROLLER = 2
     BOTH = 3
-    SILENT = 4  # No screen output, only file logging
 
 class Logger:
-    def __init__(self, brain_instance, controller_instance, dump_interval=None, max_brain_lines=12):
+    def __init__(self, brain_instance, controller_instance, max_brain_lines=12):
         self.brain = brain_instance
         self.controller = controller_instance
-        self.buffer = []
-        self.last_dump = 0  # Use brain timer instead of time.time()
-        if dump_interval is None:
-            self.dump_interval = LoggingSettings.DUMP_INTERVAL
-        else:
-            self.dump_interval = dump_interval
         self.current_log_level = LogLevel.INFO
         
         # Screen management
         self.brain_line = 1
         self.max_brain_lines = max_brain_lines
-        
-        # File management disabled for VEX compatibility
-        self.save_logs = False  # Always disabled for VEX
-        self.log_file_path = ""
 
-    def _create_log_file(self):
-        """Stub - file I/O not supported on VEX"""
-        return ""
 
-    def _cleanup_old_logs(self):
-        """Stub - file I/O not supported on VEX"""
-        pass
 
     def set_log_level(self, level):
         """Set the minimum log level that will be processed"""
@@ -144,16 +124,6 @@ class Logger:
         elif screen_target == ScreenTarget.BOTH:
             self._log_to_brain(formatted_message)
             self._log_to_controller(formatted_message)
-        # SILENT means no screen output
-
-        # Only add to buffer if saving logs (disabled for VEX)
-        if self.save_logs:
-            self.buffer.append(formatted_message)
-
-            # Auto-dump if interval passed - use brain timer instead
-            current_time = self.brain.timer.time() / 1000.0  # Convert ms to seconds
-            if current_time - self.last_dump >= self.dump_interval:
-                self.dump()
 
     # Public logging methods
     def debug(self, message, screen_target=ScreenTarget.BRAIN):
@@ -176,26 +146,14 @@ class Logger:
         """Log critical message"""
         self._log_internal(LogLevel.CRITICAL, message, screen_target)
 
-    def silent(self, message, level=LogLevel.INFO):
-        """Log message silently (file only, no screen output)"""
-        self._log_internal(level, message, ScreenTarget.SILENT)
+
 
     # Legacy compatibility method
     def log(self, message, level=LogLevel.INFO, screen_target=ScreenTarget.BOTH):
         """General log method for backwards compatibility"""
         self._log_internal(level, message, screen_target)
 
-    def dump(self):
-        """Stub - file I/O not supported on VEX"""
-        if not self.save_logs or not self.buffer:
-            return
-        # Clear buffer and update timestamp using brain timer    
-        self.buffer.clear()
-        self.last_dump = self.brain.timer.time() / 1000.0
 
-    def _final_dump(self):
-        """Stub - file I/O not supported on VEX"""
-        pass
 
 # =============================================================================
 # CUSTOM CONTROLLER
@@ -375,7 +333,7 @@ def drivetrain_update():
     if (abs(forward) > 50 or abs(strafe) > 50 or abs(turn) > 50) and \
        (current_time - last_input_log_time > 2000):  # Log every 2 seconds max
         debug_msg = "Driver input: F:" + str(int(forward)) + " S:" + str(int(strafe)) + " T:" + str(int(turn))
-        logger.debug(debug_msg, ScreenTarget.SILENT)
+        logger.debug(debug_msg, ScreenTarget.BRAIN)
         last_input_log_time = current_time
 
     # Apply speed modifiers
