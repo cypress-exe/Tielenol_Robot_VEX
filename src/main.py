@@ -28,10 +28,6 @@ class ControllerSettings:
     STRAFE_AXIS = 4
     TURN_AXIS = 1
 
-class LoggingSettings:
-    """Logging configuration settings"""
-    pass  # No settings needed for screen-only logging
-
 # =============================================================================
 # LOGGING SYSTEM
 # =============================================================================
@@ -51,7 +47,7 @@ class ScreenTarget:
     BOTH = 3
 
 class Logger:
-    def __init__(self, brain_instance, controller_instance, max_brain_lines=12):
+    def __init__(self, brain_instance: Brain, controller_instance: Controller, max_brain_lines=12):
         self.brain = brain_instance
         self.controller = controller_instance
         self.current_log_level = LogLevel.INFO
@@ -187,10 +183,10 @@ class CustomController(Controller):
 class Drivetrain:
     def __init__(
         self,
-        left_motor,
-        right_motor,
-        strafe_motor,
-        inertia_sensor,
+        left_motor: MotorGroup | Motor,
+        right_motor: MotorGroup | Motor,
+        strafe_motor: MotorGroup | Motor,
+        inertia_sensor: Inertial,
     ):
         """
         Initialize drivetrain with motor groups for efficient control
