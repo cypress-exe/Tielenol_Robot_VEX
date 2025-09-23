@@ -28,11 +28,14 @@ class ControllerSettings:
     STRAFE_AXIS = 4
     TURN_AXIS = 1
 
+    INTAKE_BUTTON = 'R1'
+    INTAKE_REVERSE_BUTTON = 'R2'
+
 # =============================================================================
 # LOGGING SYSTEM
 # =============================================================================
 
-# Log levels in order of severity (constants instead of Enum)
+# Log levels in order of severity
 class LogLevel:
     DEBUG = 1
     INFO = 2
@@ -40,7 +43,7 @@ class LogLevel:
     ERROR = 4
     CRITICAL = 5
 
-# Screen output targets (constants instead of Enum)  
+# Screen output targets
 class ScreenTarget:
     BRAIN = 1
     CONTROLLER = 2
@@ -175,6 +178,35 @@ class CustomController(Controller):
         if abs(value) < ControllerSettings.DEADZONE_THRESHOLD:
             return 0
         return value
+    
+    def get_button(self, button_name):
+        """Returns the specified button of the controller"""
+        if button_name == 'A':
+            return self.buttonA
+        elif button_name == 'B':
+            return self.buttonB
+        elif button_name == 'X':
+            return self.buttonX
+        elif button_name == 'Y':
+            return self.buttonY
+        elif button_name == 'L1':
+            return self.buttonL1
+        elif button_name == 'L2':
+            return self.buttonL2
+        elif button_name == 'R1':
+            return self.buttonR1
+        elif button_name == 'R2':
+            return self.buttonR2
+        elif button_name == 'Up':
+            return self.buttonUp
+        elif button_name == 'Down':
+            return self.buttonDown
+        elif button_name == 'Left':
+            return self.buttonLeft
+        elif button_name == 'Right':
+            return self.buttonRight
+        else:
+            raise ValueError("Invalid button name")
 
 # =============================================================================
 # DRIVETRAIN ABSTRACTION
@@ -249,17 +281,20 @@ class Drivetrain:
 # Global instances of motors and sensors
 class Motors:
     # Individual drive motors
-    left_front_motor = Motor(Ports.PORT19, GearSetting.RATIO_18_1, False)
-    left_back_motor = Motor(Ports.PORT20, GearSetting.RATIO_18_1, False)
-    right_front_motor = Motor(Ports.PORT11, GearSetting.RATIO_18_1, True)
-    right_back_motor = Motor(Ports.PORT13, GearSetting.RATIO_18_1, True)
+    left_front_motor = Motor(Ports.PORT7, GearSetting.RATIO_6_1, False)
+    left_back_motor = Motor(Ports.PORT10, GearSetting.RATIO_6_1, False)
+    right_front_motor = Motor(Ports.PORT9, GearSetting.RATIO_6_1, True)
+    right_back_motor = Motor(Ports.PORT8, GearSetting.RATIO_6_1, True)
     
     # Strafing motor
-    strafe_motor = Motor(Ports.PORT12, GearSetting.RATIO_18_1, False)
+    strafe_motor = Motor(Ports.PORT11, GearSetting.RATIO_18_1, False)
     
     # Motor groups for efficient control
     left_motor_group = MotorGroup(left_front_motor, left_back_motor)
     right_motor_group = MotorGroup(right_front_motor, right_back_motor)
+
+    # Intake
+    intake_motor = Motor(Ports.PORT6, GearSetting.RATIO_18_1, True)
 
 class Sensors:
     inertia_sensor = Inertial(Ports.PORT6)
@@ -309,6 +344,7 @@ def driver_control_entrypoint():
     try:
         while True:
             drivetrain_update()
+            intake_update()
             wait(20, MSEC) # Run the loop every 20 milliseconds (50 times per second)
     except Exception as e:
         logger.critical("Driver control crashed: " + str(e))
@@ -342,6 +378,15 @@ def drivetrain_update():
         drivetrain.drive(forward, strafe, turn)
     except Exception as e:
         logger.error("Drivetrain command failed: " + str(e))
+
+def intake_update():
+    """To be called repeatedly in driver control mode to update the intake"""
+    if controller.get_button(ControllerSettings.INTAKE_BUTTON).pressing():
+        Motors.intake_motor.spin(FORWARD, 100, PERCENT)
+    elif controller.get_button(ControllerSettings.INTAKE_REVERSE_BUTTON).pressing():
+        Motors.intake_motor.spin(REVERSE, 100, PERCENT)
+    else:
+        Motors.intake_motor.stop(BRAKE)
 
 # =============================================================================
 # MAIN PROGRAM
