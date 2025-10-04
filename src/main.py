@@ -29,7 +29,9 @@ class ControllerSettings:
     TURN_AXIS = 1
 
     INTAKE_BUTTON = 'R1'
-    INTAKE_REVERSE_BUTTON = 'R2'
+    OUTTAKE_LOW_BUTTON = 'R2'
+    OUTTAKE_MEDIUM_BUTTON = 'L2'
+    OUTTAKE_HIGH_BUTTON = 'L1'
 
 # =============================================================================
 # LOGGING SYSTEM
@@ -261,6 +263,17 @@ class Drivetrain:
         self.left_motor.stop(brake_type)
         self.right_motor.stop(brake_type)
         self.strafe_motor.stop(brake_type)
+
+    def set_stopping_mode(self, brake_type):
+        """
+        Set the stopping mode for all drivetrain motors
+        
+        Args:
+            brake_type: Type of braking to apply (BRAKE, COAST, or HOLD)
+        """
+        self.left_motor.set_stopping(brake_type)
+        self.right_motor.set_stopping(brake_type)
+        self.strafe_motor.set_stopping(brake_type)
     
     def set_velocity(self, velocity, units=PERCENT):
         """
@@ -294,7 +307,8 @@ class Motors:
     right_motor_group = MotorGroup(right_front_motor, right_back_motor)
 
     # Intake
-    intake_motor = Motor(Ports.PORT6, GearSetting.RATIO_18_1, True)
+    bottom_intake_motor = Motor(Ports.PORT6, GearSetting.RATIO_18_1, False)
+    loading_intake_motor = Motor(Ports.PORT5, GearSetting.RATIO_18_1, True)
 
 class Sensors:
     inertia_sensor = Inertial(Ports.PORT6)
@@ -342,6 +356,8 @@ def driver_control_entrypoint():
     logger.info("=== DRIVER CONTROL MODE STARTED ===", ScreenTarget.BOTH)
     
     try:
+        drivetrain.set_stopping_mode(BRAKE)
+
         while True:
             drivetrain_update()
             intake_update()
@@ -382,11 +398,21 @@ def drivetrain_update():
 def intake_update():
     """To be called repeatedly in driver control mode to update the intake"""
     if controller.get_button(ControllerSettings.INTAKE_BUTTON).pressing():
-        Motors.intake_motor.spin(FORWARD, 100, PERCENT)
-    elif controller.get_button(ControllerSettings.INTAKE_REVERSE_BUTTON).pressing():
-        Motors.intake_motor.spin(REVERSE, 100, PERCENT)
+        Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
+        # Motors.loading_intake_motor.spin(FORWARD, 100, PERCENT)
+        Motors.loading_intake_motor.stop(BRAKE)
+    elif controller.get_button(ControllerSettings.OUTTAKE_LOW_BUTTON).pressing():
+        Motors.bottom_intake_motor.spin(REVERSE, 100, PERCENT)
+        Motors.loading_intake_motor.spin(REVERSE, 100, PERCENT)
+    elif controller.get_button(ControllerSettings.OUTTAKE_MEDIUM_BUTTON).pressing():
+        Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
+        Motors.loading_intake_motor.spin(REVERSE, 100, PERCENT)
+    elif controller.get_button(ControllerSettings.OUTTAKE_HIGH_BUTTON).pressing():
+        Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
+        Motors.loading_intake_motor.spin(REVERSE, 100, PERCENT)
     else:
-        Motors.intake_motor.stop(BRAKE)
+        Motors.bottom_intake_motor.stop(BRAKE)
+        Motors.loading_intake_motor.stop(BRAKE)
 
 # =============================================================================
 # MAIN PROGRAM
