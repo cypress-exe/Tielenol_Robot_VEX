@@ -399,7 +399,6 @@ def intake_update():
     """To be called repeatedly in driver control mode to update the intake"""
     if controller.get_button(ControllerSettings.INTAKE_BUTTON).pressing():
         Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
-        # Motors.loading_intake_motor.spin(FORWARD, 100, PERCENT)
         Motors.unloading_motor.stop(BRAKE)
     elif controller.get_button(ControllerSettings.OUTTAKE_LOW_BUTTON).pressing():
         Motors.bottom_intake_motor.spin(REVERSE, 100, PERCENT)
