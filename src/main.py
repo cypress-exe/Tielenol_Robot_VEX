@@ -308,7 +308,7 @@ class Motors:
 
     # Intake
     bottom_intake_motor = Motor(Ports.PORT6, GearSetting.RATIO_18_1, False)
-    loading_intake_motor = Motor(Ports.PORT5, GearSetting.RATIO_18_1, True)
+    unloading_motor = Motor(Ports.PORT5, GearSetting.RATIO_18_1, True)
 
 class Sensors:
     inertia_sensor = Inertial(Ports.PORT6)
@@ -400,19 +400,19 @@ def intake_update():
     if controller.get_button(ControllerSettings.INTAKE_BUTTON).pressing():
         Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
         # Motors.loading_intake_motor.spin(FORWARD, 100, PERCENT)
-        Motors.loading_intake_motor.stop(BRAKE)
+        Motors.unloading_motor.stop(BRAKE)
     elif controller.get_button(ControllerSettings.OUTTAKE_LOW_BUTTON).pressing():
         Motors.bottom_intake_motor.spin(REVERSE, 100, PERCENT)
-        Motors.loading_intake_motor.spin(REVERSE, 100, PERCENT)
+        Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
     elif controller.get_button(ControllerSettings.OUTTAKE_MEDIUM_BUTTON).pressing():
         Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
-        Motors.loading_intake_motor.spin(REVERSE, 100, PERCENT)
+        Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
     elif controller.get_button(ControllerSettings.OUTTAKE_HIGH_BUTTON).pressing():
         Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
-        Motors.loading_intake_motor.spin(REVERSE, 100, PERCENT)
+        Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
     else:
         Motors.bottom_intake_motor.stop(BRAKE)
-        Motors.loading_intake_motor.stop(BRAKE)
+        Motors.unloading_motor.stop(BRAKE)
 
 # =============================================================================
 # MAIN PROGRAM
