@@ -308,6 +308,7 @@ class Motors:
 
     # Intake
     bottom_intake_motor = Motor(Ports.PORT6, GearSetting.RATIO_18_1, False)
+    top_intake_motor = Motor(Ports.PORT20, GearSetting.RATIO_18_1, True)
     unloading_motor = Motor(Ports.PORT5, GearSetting.RATIO_18_1, True)
 
 class Sensors:
@@ -397,20 +398,25 @@ def drivetrain_update():
 
 def intake_update():
     """To be called repeatedly in driver control mode to update the intake"""
-    if controller.get_button(ControllerSettings.INTAKE_BUTTON).pressing():
+    if controller.get_button(ControllerSettings.INTAKE_BUTTON).pressing(): # Intake
         Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
+        Motors.top_intake_motor.spin(FORWARD, 100, PERCENT)
         Motors.unloading_motor.stop(BRAKE)
-    elif controller.get_button(ControllerSettings.OUTPUT_LOW_BUTTON).pressing():
+    elif controller.get_button(ControllerSettings.OUTPUT_LOW_BUTTON).pressing(): # Output low
         Motors.bottom_intake_motor.spin(REVERSE, 100, PERCENT)
+        Motors.top_intake_motor.stop(BRAKE)
         Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
-    elif controller.get_button(ControllerSettings.OUTPUT_MEDIUM_BUTTON).pressing():
+    elif controller.get_button(ControllerSettings.OUTPUT_MEDIUM_BUTTON).pressing(): # Output medium
         Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
+        Motors.top_intake_motor.spin(REVERSE, 100, PERCENT)
         Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
-    elif controller.get_button(ControllerSettings.OUTPUT_HIGH_BUTTON).pressing():
+    elif controller.get_button(ControllerSettings.OUTPUT_HIGH_BUTTON).pressing(): # Output high
         Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
+        Motors.top_intake_motor.spin(FORWARD, 100, PERCENT)
         Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
     else:
         Motors.bottom_intake_motor.stop(BRAKE)
+        Motors.top_intake_motor.stop(BRAKE)
         Motors.unloading_motor.stop(BRAKE)
 
 # =============================================================================
