@@ -29,9 +29,9 @@ class ControllerSettings:
     TURN_AXIS = 1
 
     INTAKE_BUTTON = 'R1'
-    OUTTAKE_LOW_BUTTON = 'R2'
-    OUTTAKE_MEDIUM_BUTTON = 'L2'
-    OUTTAKE_HIGH_BUTTON = 'L1'
+    OUTPUT_LOW_BUTTON = 'R2'
+    OUTPUT_MEDIUM_BUTTON = 'L2'
+    OUTPUT_HIGH_BUTTON = 'L1'
 
 # =============================================================================
 # LOGGING SYSTEM
@@ -400,13 +400,13 @@ def intake_update():
     if controller.get_button(ControllerSettings.INTAKE_BUTTON).pressing():
         Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
         Motors.unloading_motor.stop(BRAKE)
-    elif controller.get_button(ControllerSettings.OUTTAKE_LOW_BUTTON).pressing():
+    elif controller.get_button(ControllerSettings.OUTPUT_LOW_BUTTON).pressing():
         Motors.bottom_intake_motor.spin(REVERSE, 100, PERCENT)
         Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
-    elif controller.get_button(ControllerSettings.OUTTAKE_MEDIUM_BUTTON).pressing():
+    elif controller.get_button(ControllerSettings.OUTPUT_MEDIUM_BUTTON).pressing():
         Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
         Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
-    elif controller.get_button(ControllerSettings.OUTTAKE_HIGH_BUTTON).pressing():
+    elif controller.get_button(ControllerSettings.OUTPUT_HIGH_BUTTON).pressing():
         Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
         Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
     else:
