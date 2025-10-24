@@ -311,8 +311,23 @@ class Motors:
     top_intake_motor = Motor(Ports.PORT20, GearSetting.RATIO_18_1, True)
     unloading_motor = Motor(Ports.PORT5, GearSetting.RATIO_18_1, True)
 
+class Signatures:
+    # ChatGPT <smile>
+    SIG_RED = Signature(1, 6615, 9133, 7874, -247, 1413, 583, 3, 0)
+    SIG_BLUE = Signature(2, -3059, -1453, -2256, 7779, 10393, 9086, 3, 0)
+
+    @staticmethod
+    def get_all_signatures():
+        values = []
+        for attr in dir(Signatures):
+            value = getattr(Signatures, attr)
+            if isinstance(value, Signature):
+                values.append(value)
+        return values
+
 class Sensors:
     inertia_sensor = Inertial(Ports.PORT6)
+    intake_vision_sensor = Vision(Ports.PORT1, *Signatures.get_all_signatures())
 
 # Global instance of Controller & Brain
 controller = CustomController()
@@ -323,6 +338,111 @@ logger = Logger(brain, controller)
 
 # Drivetrain instance using motor groups
 drivetrain = Drivetrain(Motors.left_motor_group, Motors.right_motor_group, Motors.strafe_motor, Sensors.inertia_sensor)
+
+# =============================================================================
+# BLOCK MANIPULATION SYSTEMS
+# =============================================================================
+
+class BlockManipulationSystemState:
+    IDLE = 0
+    INTAKING = 1
+    OUTPUTTING_LOW = 2
+    OUTPUTTING_MEDIUM = 3
+    OUTPUTTING_HIGH = 4
+
+class BlockManipulationSystem:
+    def __init__(self):
+        self.state = BlockManipulationSystemState.IDLE
+
+    def set_state(self, new_state):
+        self.state = new_state
+
+    def update(self):
+        """Main tick function to update the system based on current state"""
+        if self.state == BlockManipulationSystemState.INTAKING:
+            self.Intaking.handle_intaking()
+        elif self.state == BlockManipulationSystemState.OUTPUTTING_LOW:
+            self.Outputting.handle_output_low()
+        elif self.state == BlockManipulationSystemState.OUTPUTTING_MEDIUM:
+            self.Outputting.handle_output_medium()
+        elif self.state == BlockManipulationSystemState.OUTPUTTING_HIGH:
+            self.Outputting.handle_output_high()
+        else:
+            self.handle_idle()
+
+    class Intaking:
+        reject_current_block = False
+        last_trigger_time = 0
+        times_run = 0 # REMOVE LATER
+        @staticmethod
+        def handle_intaking():
+            """Intaking logic"""
+            BlockManipulationSystem.Intaking._check_current_block()
+            Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
+            Motors.top_intake_motor.spin(FORWARD if not BlockManipulationSystem.Intaking.reject_current_block else REVERSE, 100, PERCENT)
+            Motors.unloading_motor.stop(BRAKE)
+
+        @staticmethod
+        def _check_current_block():
+            """Check if the current block should be rejected based on vision sensor"""
+            def is_block(object: VisionObject):
+                if object is None or not object.exists:
+                    return False
+                if BlockManipulationSystem.Intaking.times_run % 20 == 0:
+                    logger.info("Vision object detected - Size: " + str(int(object.width)) + "x" + str(int(object.height)))
+                BlockManipulationSystem.Intaking.times_run += 1
+                return object.width > 20 and object.height > 20
+
+            # Get current object from vision sensor
+            if Sensors.intake_vision_sensor.take_snapshot(Signatures.SIG_RED):
+                # Red object detected
+                if is_block(Sensors.intake_vision_sensor.largest_object()):
+                    BlockManipulationSystem.Intaking.reject_current_block = False
+                    BlockManipulationSystem.Intaking.last_trigger_time = brain.timer.time()
+                    return
+                
+            elif Sensors.intake_vision_sensor.take_snapshot(Signatures.SIG_BLUE):
+                # Blue object detected
+                if is_block(Sensors.intake_vision_sensor.largest_object()):
+                    BlockManipulationSystem.Intaking.reject_current_block = True # TODO: HARD CODED FOR NOW
+                    BlockManipulationSystem.Intaking.last_trigger_time = brain.timer.time()
+                    return
+            else:
+                TIME_DELAY_IN_MILLISECONDS = 1000
+                if brain.timer.time() - BlockManipulationSystem.Intaking.last_trigger_time > TIME_DELAY_IN_MILLISECONDS:
+                    BlockManipulationSystem.Intaking.reject_current_block = False
+
+    class Outputting:
+        @staticmethod
+        def handle_output_low():
+            """Output low logic"""
+            Motors.bottom_intake_motor.spin(REVERSE, 100, PERCENT)
+            Motors.top_intake_motor.stop(BRAKE)
+            Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
+
+        @staticmethod
+        def handle_output_medium():
+            """Output medium logic"""
+            Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
+            Motors.top_intake_motor.spin(REVERSE, 100, PERCENT)
+            Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
+
+        @staticmethod
+        def handle_output_high():
+            """Output high logic"""
+            Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
+            Motors.top_intake_motor.spin(FORWARD, 100, PERCENT)
+            Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
+    
+    def handle_idle(self):
+        """Idle state - stop all motors"""
+        Motors.bottom_intake_motor.stop(BRAKE)
+        Motors.top_intake_motor.stop(BRAKE)
+        Motors.unloading_motor.stop(BRAKE)
+
+block_manipulation_system = BlockManipulationSystem()
+
+
 
 # =============================================================================
 # GAME MODES
@@ -360,15 +480,15 @@ def driver_control_entrypoint():
         drivetrain.set_stopping_mode(BRAKE)
 
         while True:
-            drivetrain_update()
-            intake_update()
+            update_drivetrain()
+            update_block_manipulation_systems_state()
             wait(20, MSEC) # Run the loop every 20 milliseconds (50 times per second)
     except Exception as e:
         logger.critical("Driver control crashed: " + str(e))
         logger.critical("Robot stopped for safety", ScreenTarget.BOTH)
         pass
 
-def drivetrain_update():
+def update_drivetrain():
     """To be called repeatedly in driver control mode to update the drivetrain"""
     global last_input_log_time
     
@@ -396,28 +516,21 @@ def drivetrain_update():
     except Exception as e:
         logger.error("Drivetrain command failed: " + str(e))
 
-def intake_update():
-    """To be called repeatedly in driver control mode to update the intake"""
+def update_block_manipulation_systems_state():
+    """To be called repeatedly in driver control mode to update the block manipulation systems"""
     if controller.get_button(ControllerSettings.INTAKE_BUTTON).pressing(): # Intake
-        Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
-        Motors.top_intake_motor.spin(FORWARD, 100, PERCENT)
-        Motors.unloading_motor.stop(BRAKE)
+        block_manipulation_system.set_state(BlockManipulationSystemState.INTAKING)
     elif controller.get_button(ControllerSettings.OUTPUT_LOW_BUTTON).pressing(): # Output low
-        Motors.bottom_intake_motor.spin(REVERSE, 100, PERCENT)
-        Motors.top_intake_motor.stop(BRAKE)
-        Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
+        block_manipulation_system.set_state(BlockManipulationSystemState.OUTPUTTING_LOW)
     elif controller.get_button(ControllerSettings.OUTPUT_MEDIUM_BUTTON).pressing(): # Output medium
-        Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
-        Motors.top_intake_motor.spin(REVERSE, 100, PERCENT)
-        Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
+        block_manipulation_system.set_state(BlockManipulationSystemState.OUTPUTTING_MEDIUM)
     elif controller.get_button(ControllerSettings.OUTPUT_HIGH_BUTTON).pressing(): # Output high
-        Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
-        Motors.top_intake_motor.spin(FORWARD, 100, PERCENT)
-        Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
+        block_manipulation_system.set_state(BlockManipulationSystemState.OUTPUTTING_HIGH)
     else:
-        Motors.bottom_intake_motor.stop(BRAKE)
-        Motors.top_intake_motor.stop(BRAKE)
-        Motors.unloading_motor.stop(BRAKE)
+        block_manipulation_system.set_state(BlockManipulationSystemState.IDLE)
+
+    block_manipulation_system.update()
+
 
 # =============================================================================
 # MAIN PROGRAM
