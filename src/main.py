@@ -87,10 +87,19 @@ class Logger:
             self.brain_line = 1
             self.brain.screen.clear_screen()
         
+        # Split message into sections of 48 characters
+        segments = []
+        while len(message) > 48:
+            segments.append(message[:48])
+            message = message[48:]
+        if message:
+            segments.append(message)
+
         self.brain.screen.set_cursor(self.brain_line, 1)
-        self.brain.screen.print(message)
-        self.brain.screen.new_line()
-        self.brain_line += 1
+        for segment in segments:
+            self.brain.screen.print(segment)
+            self.brain.screen.new_line()
+            self.brain_line += 1
 
     def _log_to_controller(self, message: str):
         """Log message to controller screen (single line, overwrites)"""
@@ -311,23 +320,22 @@ class Motors:
     top_intake_motor = Motor(Ports.PORT20, GearSetting.RATIO_18_1, True)
     unloading_motor = Motor(Ports.PORT5, GearSetting.RATIO_18_1, True)
 
-class Signatures:
-    # ChatGPT <smile>
-    SIG_RED = Signature(1, 6615, 9133, 7874, -247, 1413, 583, 3, 0)
-    SIG_BLUE = Signature(2, -3059, -1453, -2256, 7779, 10393, 9086, 3, 0)
-
-    @staticmethod
-    def get_all_signatures():
-        values = []
-        for attr in dir(Signatures):
-            value = getattr(Signatures, attr)
-            if isinstance(value, Signature):
-                values.append(value)
-        return values
-
 class Sensors:
     inertia_sensor = Inertial(Ports.PORT6)
-    intake_vision_sensor = Vision(Ports.PORT1, *Signatures.get_all_signatures())
+    intake_optical_sensor = Optical(Ports.PORT19)
+
+    @classmethod
+    def setup_sensors(cls):
+        pass
+        # cls.intake_optical_sensor.object_detect_threshold(50)
+        # cls.intake_optical_sensor.set_light_power(255)
+        
+
+        # 00FF7F00 = Green
+        # FF000000 = Red
+        # 0000FF00 = Blue
+
+Sensors.setup_sensors()
 
 # Global instance of Controller & Brain
 controller = CustomController()
@@ -353,6 +361,8 @@ class BlockManipulationSystemState:
 class BlockManipulationSystem:
     def __init__(self):
         self.state = BlockManipulationSystemState.IDLE
+        self.intaking = self.Intaking()
+        self.outputting = self.Outputting()
 
     def set_state(self, new_state):
         self.state = new_state
@@ -360,13 +370,13 @@ class BlockManipulationSystem:
     def update(self):
         """Main tick function to update the system based on current state"""
         if self.state == BlockManipulationSystemState.INTAKING:
-            self.Intaking.handle_intaking()
+            self.intaking.handle_intaking()
         elif self.state == BlockManipulationSystemState.OUTPUTTING_LOW:
-            self.Outputting.handle_output_low()
+            self.outputting.handle_output_low()
         elif self.state == BlockManipulationSystemState.OUTPUTTING_MEDIUM:
-            self.Outputting.handle_output_medium()
+            self.outputting.handle_output_medium()
         elif self.state == BlockManipulationSystemState.OUTPUTTING_HIGH:
-            self.Outputting.handle_output_high()
+            self.outputting.handle_output_high()
         else:
             self.handle_idle()
 
@@ -374,61 +384,56 @@ class BlockManipulationSystem:
         reject_current_block = False
         last_trigger_time = 0
         times_run = 0 # REMOVE LATER
-        @staticmethod
-        def handle_intaking():
+        def handle_intaking(self):
             """Intaking logic"""
-            BlockManipulationSystem.Intaking._check_current_block()
+            self._check_current_block()
             Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
             Motors.top_intake_motor.spin(FORWARD if not BlockManipulationSystem.Intaking.reject_current_block else REVERSE, 100, PERCENT)
             Motors.unloading_motor.stop(BRAKE)
 
-        @staticmethod
-        def _check_current_block():
+        def _check_current_block(self):
             """Check if the current block should be rejected based on vision sensor"""
             def is_block(object: VisionObject):
                 if object is None or not object.exists:
                     return False
-                if BlockManipulationSystem.Intaking.times_run % 20 == 0:
+                if self.times_run % 20 == 0:
                     logger.info("Vision object detected - Size: " + str(int(object.width)) + "x" + str(int(object.height)))
-                BlockManipulationSystem.Intaking.times_run += 1
+                self.times_run += 1
                 return object.width > 20 and object.height > 20
 
             # Get current object from vision sensor
-            if Sensors.intake_vision_sensor.take_snapshot(Signatures.SIG_RED):
+            if Sensors.intake_optical_sensor.take_snapshot(Signatures.SIG_RED):
                 # Red object detected
-                if is_block(Sensors.intake_vision_sensor.largest_object()):
-                    BlockManipulationSystem.Intaking.reject_current_block = False
-                    BlockManipulationSystem.Intaking.last_trigger_time = brain.timer.time()
+                if is_block(Sensors.intake_optical_sensor.largest_object()):
+                    self.reject_current_block = False
+                    self.last_trigger_time = brain.timer.time()
                     return
                 
-            elif Sensors.intake_vision_sensor.take_snapshot(Signatures.SIG_BLUE):
+            elif Sensors.intake_optical_sensor.take_snapshot(Signatures.SIG_BLUE):
                 # Blue object detected
-                if is_block(Sensors.intake_vision_sensor.largest_object()):
-                    BlockManipulationSystem.Intaking.reject_current_block = True # TODO: HARD CODED FOR NOW
-                    BlockManipulationSystem.Intaking.last_trigger_time = brain.timer.time()
+                if is_block(Sensors.intake_optical_sensor.largest_object()):
+                    self.reject_current_block = True # TODO: HARD CODED FOR NOW
+                    self.last_trigger_time = brain.timer.time()
                     return
             else:
                 TIME_DELAY_IN_MILLISECONDS = 1000
-                if brain.timer.time() - BlockManipulationSystem.Intaking.last_trigger_time > TIME_DELAY_IN_MILLISECONDS:
-                    BlockManipulationSystem.Intaking.reject_current_block = False
+                if brain.timer.time() - self.last_trigger_time > TIME_DELAY_IN_MILLISECONDS:
+                    self.reject_current_block = False
 
     class Outputting:
-        @staticmethod
-        def handle_output_low():
+        def handle_output_low(self):
             """Output low logic"""
             Motors.bottom_intake_motor.spin(REVERSE, 100, PERCENT)
             Motors.top_intake_motor.stop(BRAKE)
             Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
 
-        @staticmethod
-        def handle_output_medium():
+        def handle_output_medium(self):
             """Output medium logic"""
             Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
             Motors.top_intake_motor.spin(REVERSE, 100, PERCENT)
             Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
 
-        @staticmethod
-        def handle_output_high():
+        def handle_output_high(self):
             """Output high logic"""
             Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
             Motors.top_intake_motor.spin(FORWARD, 100, PERCENT)
@@ -482,6 +487,15 @@ def driver_control_entrypoint():
         while True:
             update_drivetrain()
             update_block_manipulation_systems_state()
+
+            if controller.buttonUp.pressing():  # Example
+                # brightness = Sensors.intake_optical_sensor.brightness()
+                # logger.info("Brightness: " + str(brightness))
+                # near = Sensors.intake_optical_sensor.is_near_object()
+                # logger.info("Vision sensor <near>: " + str(near))
+                color = Sensors.intake_optical_sensor.color()
+                logger.info("Color: " + str(color))
+
             wait(20, MSEC) # Run the loop every 20 milliseconds (50 times per second)
     except Exception as e:
         logger.critical("Driver control crashed: " + str(e))
