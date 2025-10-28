@@ -318,24 +318,27 @@ class Motors:
     # Intake
     bottom_intake_motor = Motor(Ports.PORT6, GearSetting.RATIO_18_1, False)
     top_intake_motor = Motor(Ports.PORT20, GearSetting.RATIO_18_1, True)
-    unloading_motor = Motor(Ports.PORT5, GearSetting.RATIO_18_1, True)
+    unloading_motor = Motor(Ports.PORT19, GearSetting.RATIO_18_1, True)
 
 class Sensors:
     inertia_sensor = Inertial(Ports.PORT6)
-    intake_optical_sensor = Optical(Ports.PORT19)
+    intake_optical_sensor_right = Optical(Ports.PORT5)
+    intake_optical_sensor_left = Optical(Ports.PORT4)
 
     @classmethod
-    def setup_sensors(cls):
-        pass
-        # cls.intake_optical_sensor.object_detect_threshold(50)
-        # cls.intake_optical_sensor.set_light_power(255)
-        
+    def initialize_sensors(cls):
+        """Initialize sensors"""
+        # Set light power for optical sensors
+        cls.intake_optical_sensor_left.set_light_power(100)
+        cls.intake_optical_sensor_right.set_light_power(100)
 
-        # 00FF7F00 = Green
-        # FF000000 = Red
-        # 0000FF00 = Blue
+        # Set detection distance for optical sensors
+        cls.intake_optical_sensor_left.object_detect_threshold(40)
+        cls.intake_optical_sensor_right.object_detect_threshold(40)
 
-Sensors.setup_sensors()
+
+# Initialize sensors
+Sensors.initialize_sensors()
 
 # Global instance of Controller & Brain
 controller = CustomController()
@@ -388,37 +391,48 @@ class BlockManipulationSystem:
             """Intaking logic"""
             self._check_current_block()
             Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
-            Motors.top_intake_motor.spin(FORWARD if not BlockManipulationSystem.Intaking.reject_current_block else REVERSE, 100, PERCENT)
+            Motors.top_intake_motor.spin(FORWARD if not self.reject_current_block else REVERSE, 100, PERCENT)
             Motors.unloading_motor.stop(BRAKE)
 
         def _check_current_block(self):
-            """Check if the current block should be rejected based on vision sensor"""
-            def is_block(object: VisionObject):
-                if object is None or not object.exists:
-                    return False
-                if self.times_run % 20 == 0:
-                    logger.info("Vision object detected - Size: " + str(int(object.width)) + "x" + str(int(object.height)))
-                self.times_run += 1
-                return object.width > 20 and object.height > 20
+            """Check if the current block should be rejected based on vision sensor"""     
+            def classify_color(hue):
+                if 0 <= hue <= 10:
+                    return 'RED'
+                elif 120 <= hue <= 255:
+                    return 'BLUE'
+                else:
+                    return 'UNKNOWN'
+                
+            # Turn on intake color sensor lights
+            Sensors.intake_optical_sensor_left.set_light(LedStateType.ON)
+            Sensors.intake_optical_sensor_right.set_light(LedStateType.ON)
 
             # Get current object from vision sensor
-            if Sensors.intake_optical_sensor.take_snapshot(Signatures.SIG_RED):
-                # Red object detected
-                if is_block(Sensors.intake_optical_sensor.largest_object()):
+            left_hue = classify_color(Sensors.intake_optical_sensor_left.hue())
+            right_hue = classify_color(Sensors.intake_optical_sensor_right.hue())
+
+            # logger.info("Color: Left Hue: " + str(Sensors.intake_optical_sensor_left.hue()), ScreenTarget.BRAIN)
+
+            if Sensors.intake_optical_sensor_right.is_near_object() or Sensors.intake_optical_sensor_left.is_near_object():
+                # Red object detection
+                if left_hue == 'RED' or right_hue == 'RED':
                     self.reject_current_block = False
                     self.last_trigger_time = brain.timer.time()
+                    logger.info("Red block detected - accepting", ScreenTarget.BOTH)
                     return
-                
-            elif Sensors.intake_optical_sensor.take_snapshot(Signatures.SIG_BLUE):
-                # Blue object detected
-                if is_block(Sensors.intake_optical_sensor.largest_object()):
+
+                # Blue object detection
+                if left_hue == 'BLUE' or right_hue == 'BLUE':
                     self.reject_current_block = True # TODO: HARD CODED FOR NOW
                     self.last_trigger_time = brain.timer.time()
+                    logger.info("Blue block detected - rejecting", ScreenTarget.BOTH)
                     return
-            else:
-                TIME_DELAY_IN_MILLISECONDS = 1000
-                if brain.timer.time() - self.last_trigger_time > TIME_DELAY_IN_MILLISECONDS:
-                    self.reject_current_block = False
+                
+            TIME_DELAY_IN_MILLISECONDS = 1000
+            if self.reject_current_block and ((brain.timer.time() - self.last_trigger_time) > TIME_DELAY_IN_MILLISECONDS):
+                self.reject_current_block = False
+                logger.info("No block detected - accepting by default", ScreenTarget.BOTH)
 
     class Outputting:
         def handle_output_low(self):
@@ -444,6 +458,10 @@ class BlockManipulationSystem:
         Motors.bottom_intake_motor.stop(BRAKE)
         Motors.top_intake_motor.stop(BRAKE)
         Motors.unloading_motor.stop(BRAKE)
+
+        # Ensure intake color sensor lights are off
+        Sensors.intake_optical_sensor_left.set_light(LedStateType.OFF)
+        Sensors.intake_optical_sensor_right.set_light(LedStateType.OFF)
 
 block_manipulation_system = BlockManipulationSystem()
 
@@ -488,19 +506,23 @@ def driver_control_entrypoint():
             update_drivetrain()
             update_block_manipulation_systems_state()
 
-            if controller.buttonUp.pressing():  # Example
-                # brightness = Sensors.intake_optical_sensor.brightness()
-                # logger.info("Brightness: " + str(brightness))
-                # near = Sensors.intake_optical_sensor.is_near_object()
-                # logger.info("Vision sensor <near>: " + str(near))
-                color = Sensors.intake_optical_sensor.color()
-                logger.info("Color: " + str(color))
+            # if controller.buttonUp.pressing():  # Example
+            #     # brightness = Sensors.intake_optical_sensor.brightness()
+            #     # logger.info("Brightness: " + str(brightness))
+            #     # near = Sensors.intake_optical_sensor.is_near_object()
+            #     # logger.info("Vision sensor <near>: " + str(near))
+            #     # color = Sensors.intake_optical_sensor.color()
+            #     hue = Sensors.intake_optical_sensor_right.hue()
+            #     logger.info("Hue: " + str(hue))
+            #     # Red: 0-10
+            #     # Blue: 200-255
 
             wait(20, MSEC) # Run the loop every 20 milliseconds (50 times per second)
     except Exception as e:
         logger.critical("Driver control crashed: " + str(e))
         logger.critical("Robot stopped for safety", ScreenTarget.BOTH)
-        pass
+        logger.error("Restarting driver control mode...", ScreenTarget.BOTH)
+        driver_control_entrypoint()  # Restart driver control mode
 
 def update_drivetrain():
     """To be called repeatedly in driver control mode to update the drivetrain"""
