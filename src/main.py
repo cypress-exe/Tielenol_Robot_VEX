@@ -301,6 +301,11 @@ class Drivetrain:
 # =============================================================================
 
 # Global instances of motors and sensors
+
+# Global instance of Controller & Brain
+controller = CustomController()
+brain = Brain()
+
 class Motors:
     # Individual drive motors
     left_front_motor = Motor(Ports.PORT7, GearSetting.RATIO_6_1, False)
@@ -319,6 +324,9 @@ class Motors:
     bottom_intake_motor = Motor(Ports.PORT6, GearSetting.RATIO_18_1, False)
     top_intake_motor = Motor(Ports.PORT20, GearSetting.RATIO_18_1, True)
     unloading_motor = Motor(Ports.PORT19, GearSetting.RATIO_18_1, True)
+
+class Solenoids:
+    intake_solenoid = Pneumatics(brain.three_wire_port.h)
 
 class Sensors:
     inertia_sensor = Inertial(Ports.PORT6)
@@ -339,10 +347,6 @@ class Sensors:
 
 # Initialize sensors
 Sensors.initialize_sensors()
-
-# Global instance of Controller & Brain
-controller = CustomController()
-brain = Brain()
 
 # Create logger instance (requires brain and controller to be initialized)
 logger = Logger(brain, controller)
@@ -390,6 +394,7 @@ class BlockManipulationSystem:
         def handle_intaking(self):
             """Intaking logic"""
             self._check_current_block()
+            if not Solenoids.intake_solenoid.value(): Solenoids.intake_solenoid.open()
             Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
             Motors.top_intake_motor.spin(FORWARD if not self.reject_current_block else REVERSE, 100, PERCENT)
             Motors.unloading_motor.stop(BRAKE)
@@ -449,6 +454,7 @@ class BlockManipulationSystem:
 
         def handle_output_high(self):
             """Output high logic"""
+            if Solenoids.intake_solenoid.value(): Solenoids.intake_solenoid.close()
             Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
             Motors.top_intake_motor.spin(FORWARD, 100, PERCENT)
             Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
@@ -505,18 +511,6 @@ def driver_control_entrypoint():
         while True:
             update_drivetrain()
             update_block_manipulation_systems_state()
-
-            # if controller.buttonUp.pressing():  # Example
-            #     # brightness = Sensors.intake_optical_sensor.brightness()
-            #     # logger.info("Brightness: " + str(brightness))
-            #     # near = Sensors.intake_optical_sensor.is_near_object()
-            #     # logger.info("Vision sensor <near>: " + str(near))
-            #     # color = Sensors.intake_optical_sensor.color()
-            #     hue = Sensors.intake_optical_sensor_right.hue()
-            #     logger.info("Hue: " + str(hue))
-            #     # Red: 0-10
-            #     # Blue: 200-255
-
             wait(20, MSEC) # Run the loop every 20 milliseconds (50 times per second)
     except Exception as e:
         logger.critical("Driver control crashed: " + str(e))
