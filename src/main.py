@@ -390,7 +390,6 @@ class BlockManipulationSystem:
     class Intaking:
         reject_current_block = False
         last_trigger_time = 0
-        times_run = 0 # REMOVE LATER
         def handle_intaking(self):
             """Intaking logic"""
             self._check_current_block()
