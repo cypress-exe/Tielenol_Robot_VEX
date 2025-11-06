@@ -393,7 +393,7 @@ class BlockManipulationSystem:
         def handle_intaking(self):
             """Intaking logic"""
             self._check_current_block()
-            if not Solenoids.intake_solenoid.value(): Solenoids.intake_solenoid.open()
+            Solenoids.intake_solenoid.open()  # Expand/extend the intake
             Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
             Motors.top_intake_motor.spin(FORWARD if not self.reject_current_block else REVERSE, 100, PERCENT)
             Motors.unloading_motor.stop(BRAKE)
@@ -403,7 +403,7 @@ class BlockManipulationSystem:
             def classify_color(hue):
                 if 0 <= hue <= 10:
                     return 'RED'
-                elif 120 <= hue <= 255:
+                elif 80 <= hue <= 255:
                     return 'BLUE'
                 else:
                     return 'UNKNOWN'
@@ -453,7 +453,7 @@ class BlockManipulationSystem:
 
         def handle_output_high(self):
             """Output high logic"""
-            if Solenoids.intake_solenoid.value(): Solenoids.intake_solenoid.close()
+            Solenoids.intake_solenoid.close()  # Retract/contract the intake
             Motors.bottom_intake_motor.spin(FORWARD, 100, PERCENT)
             Motors.top_intake_motor.spin(FORWARD, 100, PERCENT)
             Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
