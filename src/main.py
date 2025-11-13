@@ -10,6 +10,49 @@
 # Library imports
 from vex import *
 
+# ============================================================================
+# TYPES
+# ============================================================================
+class AllianceColor:
+    def __init__(self, color_name: str = "UNKNOWN"):
+        if isinstance(color_name, str):
+            if color_name.upper() in ['RED', 'BLUE', 'UNKNOWN']:
+                self.color_name = color_name.upper()
+            else:
+                raise ValueError("Invalid color name. Choose 'RED', 'BLUE', or 'UNKNOWN'.")
+        elif isinstance(color_name, AllianceColor):
+            self.color_name = color_name.color_name
+        else:
+            raise TypeError("Color name must be a string.")
+        
+    def set_to_default(self):
+        self.color_name = "RED"
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, AllianceColor):
+            return self.color_name == other.color_name
+        return False
+
+    def __ne__(self, other: object) -> bool:
+        if isinstance(other, AllianceColor):
+            return self.color_name != other.color_name
+        return True
+    
+    def __invert__(self):
+        if self.color_name == 'UNKNOWN':
+            return AllianceColor('UNKNOWN')
+        
+        if self.color_name == 'RED':
+            return AllianceColor('BLUE')
+        else:
+            return AllianceColor('RED')
+    
+    def __str__(self) -> str:
+        return self.color_name
+    
+    def __hash__(self) -> int:
+        return hash(self.color_name)
+
 # =============================================================================
 # SETTINGS CONFIGURATION
 # =============================================================================
@@ -18,7 +61,7 @@ class DrivetrainSettings:
     """Drivetrain configuration settings"""
     FORWARD_BACKWARD_SPEED_MODIFIER = 1.0   # Modifier for forward/backward speed. Higher values increase speed.
     STRAFE_SPEED_MODIFIER = 1.0             # Modifier for strafing speed. Higher values increase speed.
-    TURN_SPEED_MODIFIER = 0.25              # Modifier for turning speed. Higher values increase speed.
+    TURN_SPEED_MODIFIER = 0.7              # Modifier for turning speed. Higher values increase speed.
 
 class ControllerSettings:
     """Controller configuration settings"""
@@ -33,6 +76,17 @@ class ControllerSettings:
     OUTPUT_MEDIUM_BUTTON = 'L2'
     OUTPUT_HIGH_BUTTON = 'L1'
 
+    COLOR_SWITCH_BUTTON = "A"  # Button to switch alliance color
+    BRAKING_SWITCH_BUTTON = "B"  # Button to switch braking mode
+
+class RobotState:
+    """Robot state configuration. Edited by the main program."""
+    # =========================== CONFIGURED SETTINGS ===========================
+    # Edit these values to change the initial robot configuration
+
+    current_alliance_color = AllianceColor("red")  # Default alliance color: 'RED' or 'BLUE'
+    current_braking_mode = COAST # Braking mode for drivetrain motors: BRAKE, COAST, or HOLD
+    
 # =============================================================================
 # LOGGING SYSTEM
 # =============================================================================
@@ -105,19 +159,16 @@ class Logger:
         """Log message to controller screen (single line, overwrites)"""
         self.controller.screen.clear_line(1)
         self.controller.screen.set_cursor(1, 1)
-        # Truncate message if too long for controller screen
-        truncated_message = message[:19] if len(message) > 19 else message
-        self.controller.screen.print(truncated_message)
+        self.controller.screen.print(message)
 
     def _format_message(self, level, message):
         """Format message with timestamp and log level"""
-        timestamp = self.brain.timer.time()  # ms since program start
         level_names = {1: "DEBUG", 2: "INFO", 3: "WARNING", 4: "ERROR", 5: "CRITICAL"}
         if level in level_names:
             level_name = level_names[level]
         else:
             level_name = 'UNKNOWN'
-        return "[" + str(int(timestamp)) + "ms] [" + level_name + "] " + message
+        return "[" + level_name + "] " + message
 
     def _log_internal(self, level, message, screen_target=ScreenTarget.BOTH):
         """Internal logging function"""
@@ -130,10 +181,10 @@ class Logger:
         if screen_target == ScreenTarget.BRAIN:
             self._log_to_brain(formatted_message)
         elif screen_target == ScreenTarget.CONTROLLER:
-            self._log_to_controller(formatted_message)
+            self._log_to_controller(message)
         elif screen_target == ScreenTarget.BOTH:
             self._log_to_brain(formatted_message)
-            self._log_to_controller(formatted_message)
+            self._log_to_controller(message)
 
     # Public logging methods
     def debug(self, message, screen_target=ScreenTarget.BRAIN):
@@ -155,13 +206,6 @@ class Logger:
     def critical(self, message, screen_target=ScreenTarget.BOTH):
         """Log critical message"""
         self._log_internal(LogLevel.CRITICAL, message, screen_target)
-
-
-
-    # Legacy compatibility method
-    def log(self, message, level=LogLevel.INFO, screen_target=ScreenTarget.BOTH):
-        """General log method for backwards compatibility"""
-        self._log_internal(level, message, screen_target)
 
 
 
@@ -308,11 +352,11 @@ brain = Brain()
 
 class Motors:
     # Individual drive motors
-    left_front_motor = Motor(Ports.PORT7, GearSetting.RATIO_6_1, False)
-    left_back_motor = Motor(Ports.PORT10, GearSetting.RATIO_6_1, False)
-    right_front_motor = Motor(Ports.PORT9, GearSetting.RATIO_6_1, True)
-    right_back_motor = Motor(Ports.PORT8, GearSetting.RATIO_6_1, True)
-    
+    left_front_motor = Motor(Ports.PORT7, GearSetting.RATIO_18_1, False)
+    left_back_motor = Motor(Ports.PORT10, GearSetting.RATIO_18_1, False)
+    right_front_motor = Motor(Ports.PORT9, GearSetting.RATIO_18_1, True)
+    right_back_motor = Motor(Ports.PORT8, GearSetting.RATIO_18_1, True)
+
     # Strafing motor
     strafe_motor = Motor(Ports.PORT11, GearSetting.RATIO_18_1, False)
     
@@ -402,12 +446,17 @@ class BlockManipulationSystem:
             """Check if the current block should be rejected based on vision sensor"""     
             def classify_color(hue):
                 if 0 <= hue <= 10:
-                    return 'RED'
+                    return AllianceColor("red")
                 elif 80 <= hue <= 255:
-                    return 'BLUE'
+                    return AllianceColor("blue")
                 else:
-                    return 'UNKNOWN'
+                    return AllianceColor("unknown")
                 
+            # Check that system is active (alliance color is known)
+            if RobotState.current_alliance_color == AllianceColor("unknown"):
+                self.reject_current_block = False
+                return
+
             # Turn on intake color sensor lights
             Sensors.intake_optical_sensor_left.set_light(LedStateType.ON)
             Sensors.intake_optical_sensor_right.set_light(LedStateType.ON)
@@ -420,23 +469,23 @@ class BlockManipulationSystem:
 
             if Sensors.intake_optical_sensor_right.is_near_object() or Sensors.intake_optical_sensor_left.is_near_object():
                 # Red object detection
-                if left_hue == 'RED' or right_hue == 'RED':
-                    self.reject_current_block = False
+                if left_hue == AllianceColor("red") or right_hue == AllianceColor("red"):
+                    self.reject_current_block = (RobotState.current_alliance_color != AllianceColor("red"))
                     self.last_trigger_time = brain.timer.time()
-                    logger.info("Red block detected - accepting", ScreenTarget.BOTH)
+                    logger.debug("Red block detected - accepting", ScreenTarget.BOTH)
                     return
 
                 # Blue object detection
-                if left_hue == 'BLUE' or right_hue == 'BLUE':
-                    self.reject_current_block = True # TODO: HARD CODED FOR NOW
+                if left_hue == AllianceColor("blue") or right_hue == AllianceColor("blue"):
+                    self.reject_current_block = (RobotState.current_alliance_color != AllianceColor("blue"))
                     self.last_trigger_time = brain.timer.time()
-                    logger.info("Blue block detected - rejecting", ScreenTarget.BOTH)
+                    logger.debug("Blue block detected - rejecting", ScreenTarget.BOTH)
                     return
                 
             TIME_DELAY_IN_MILLISECONDS = 1000
             if self.reject_current_block and ((brain.timer.time() - self.last_trigger_time) > TIME_DELAY_IN_MILLISECONDS):
                 self.reject_current_block = False
-                logger.info("No block detected - accepting by default", ScreenTarget.BOTH)
+                logger.debug("No block detected - accepting by default", ScreenTarget.BOTH)
 
     class Outputting:
         def handle_output_low(self):
@@ -476,6 +525,8 @@ block_manipulation_system = BlockManipulationSystem()
 # GAME MODES
 # =============================================================================
 
+# ======================== AUTONOMOUS MODE ========================
+
 def autonomous_entrypoint():
     """Executed once upon entering autonomous mode"""
     logger.info("=== AUTONOMOUS MODE STARTED ===", ScreenTarget.BOTH)
@@ -500,12 +551,18 @@ def autonomous_entrypoint():
 # Track last significant input for logging
 last_input_log_time = 0
 
+# ======================== DRIVER CONTROL MODE ========================
+
 def driver_control_entrypoint():
     """Executed once upon entering driver control mode"""
     logger.info("=== DRIVER CONTROL MODE STARTED ===", ScreenTarget.BOTH)
+
+    # Register callbacks for buttons
+    controller.get_button(ControllerSettings.COLOR_SWITCH_BUTTON).pressed(switch_alliance_color)
+    controller.get_button(ControllerSettings.BRAKING_SWITCH_BUTTON).pressed(switch_braking_mode) 
     
     try:
-        drivetrain.set_stopping_mode(BRAKE)
+        drivetrain.set_stopping_mode(RobotState.current_braking_mode)
 
         while True:
             update_drivetrain()
@@ -534,6 +591,19 @@ def update_drivetrain():
         logger.debug(debug_msg, ScreenTarget.BRAIN)
         last_input_log_time = current_time
 
+    # # For usability reasons, decrease the sensitivity of turning while at forward/backward motion, using a continuous scaling factor
+    # if forward != 0:
+    #     turn *= 0.5 + (0.5 * (1 - abs(forward) / 100))
+    
+    # Clamp strafe or forward/backward to zero if one is close and the other is significant different, allowing precise straight or strafe movement
+    DOMINANT_AXIS_THRESHOLD = 50
+    MINOR_AXIS_THRESHOLD = 20    
+    
+    if abs(forward) > DOMINANT_AXIS_THRESHOLD and abs(strafe) < MINOR_AXIS_THRESHOLD:
+        strafe = 0
+    elif abs(strafe) > DOMINANT_AXIS_THRESHOLD and abs(forward) < MINOR_AXIS_THRESHOLD:
+        forward = 0
+
     # Apply speed modifiers
     forward *= DrivetrainSettings.FORWARD_BACKWARD_SPEED_MODIFIER
     strafe *= DrivetrainSettings.STRAFE_SPEED_MODIFIER
@@ -560,6 +630,46 @@ def update_block_manipulation_systems_state():
 
     block_manipulation_system.update()
 
+def switch_alliance_color():
+    """Switch the current alliance color"""
+    LONG_PRESS_THRESHOLD_MS = 1000  # 1 second threshold for long press
+
+    # Define color if not defined already
+    if RobotState.current_alliance_color == AllianceColor("unknown"):
+        RobotState.current_alliance_color.set_to_default()
+    
+    # Toggle Color
+    RobotState.current_alliance_color = ~RobotState.current_alliance_color
+
+    logger.info("Alliance color switched to " + str(RobotState.current_alliance_color), ScreenTarget.BRAIN)
+    logger.info(str(RobotState.current_alliance_color) + " alliance selected", ScreenTarget.CONTROLLER)
+
+    # =============================== LONG PRESS FUNCTIONALITY ========================================
+    init_time = brain.timer.time()
+    while controller.get_button(ControllerSettings.COLOR_SWITCH_BUTTON).pressing():
+        wait(10, MSEC)
+        if brain.timer.time() - init_time > LONG_PRESS_THRESHOLD_MS:  # Early exit for long press
+            break
+
+    if brain.timer.time() - init_time > LONG_PRESS_THRESHOLD_MS:  # Long press detected
+        RobotState.current_alliance_color = AllianceColor("unknown")
+        logger.warning("Alliance color switched to UNKNOWN; color detection disabled.", ScreenTarget.BRAIN)
+        logger.warning("Color detection disabled.", ScreenTarget.CONTROLLER)
+    
+def switch_braking_mode():
+    """Switch the drivetrain braking mode between BRAKE and COAST"""
+    if RobotState.current_braking_mode == BRAKE:
+        new_mode = COAST
+    else:
+        new_mode = BRAKE
+
+    RobotState.current_braking_mode = new_mode
+    drivetrain.set_stopping_mode(new_mode)
+
+    str_name = "BRAKE" if new_mode == BRAKE else "COAST"
+
+    logger.info("Drivetrain braking mode switched to " + str_name, ScreenTarget.BRAIN)
+    logger.info(str_name + " braking mode.", ScreenTarget.CONTROLLER)
 
 # =============================================================================
 # MAIN PROGRAM
