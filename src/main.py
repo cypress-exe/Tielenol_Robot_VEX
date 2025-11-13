@@ -17,41 +17,41 @@ class AllianceColor:
     def __init__(self, color_name: str = "UNKNOWN"):
         if isinstance(color_name, str):
             if color_name.upper() in ['RED', 'BLUE', 'UNKNOWN']:
-                self.color_name = color_name.upper()
+                self.__color_name = color_name.upper()
             else:
                 raise ValueError("Invalid color name. Choose 'RED', 'BLUE', or 'UNKNOWN'.")
         elif isinstance(color_name, AllianceColor):
-            self.color_name = color_name.color_name
+            self.__color_name = color_name.color_name
         else:
             raise TypeError("Color name must be a string.")
         
     def set_to_default(self):
-        self.color_name = "RED"
+        self.__color_name = "RED"
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, AllianceColor):
-            return self.color_name == other.color_name
+            return self.__color_name == other.__color_name
         return False
 
     def __ne__(self, other: object) -> bool:
         if isinstance(other, AllianceColor):
-            return self.color_name != other.color_name
+            return self.__color_name != other.__color_name
         return True
     
     def __invert__(self):
-        if self.color_name == 'UNKNOWN':
+        if self.__color_name == 'UNKNOWN':
             return AllianceColor('UNKNOWN')
         
-        if self.color_name == 'RED':
+        if self.__color_name == 'RED':
             return AllianceColor('BLUE')
         else:
             return AllianceColor('RED')
     
     def __str__(self) -> str:
-        return self.color_name
+        return self.__color_name
     
     def __hash__(self) -> int:
-        return hash(self.color_name)
+        return hash(self.__color_name)
 
 # =============================================================================
 # SETTINGS CONFIGURATION
