@@ -67,9 +67,11 @@ class ControllerSettings:
     """Controller configuration settings"""
     DEADZONE_THRESHOLD = 5  # Joystick deadzone threshold. Values within this range are ignored to prevent drift.
     
-    FORWARD_BACKWARD_AXIS = 3
-    STRAFE_AXIS = 4
+    FORWARD_BACKWARD_AXIS = 2
     TURN_AXIS = 1
+
+    STRAFE_LEFT_BUTTON = "Left"
+    STRAFE_RIGHT_BUTTON = "Right"
 
     INTAKE_BUTTON = 'R1'
     OUTPUT_LOW_BUTTON = 'R2'
@@ -580,33 +582,12 @@ def update_drivetrain():
     
     # Get joystick values with deadzone applied
     forward = controller.get_axis_with_deadzone(ControllerSettings.FORWARD_BACKWARD_AXIS)
-    strafe = controller.get_axis_with_deadzone(ControllerSettings.STRAFE_AXIS)
     turn = controller.get_axis_with_deadzone(ControllerSettings.TURN_AXIS)
-
-    # Log significant inputs occasionally (not every loop to avoid spam)
-    current_time = brain.timer.time()
-    if (abs(forward) > 50 or abs(strafe) > 50 or abs(turn) > 50) and \
-       (current_time - last_input_log_time > 2000):  # Log every 2 seconds max
-        debug_msg = "Driver input: F:" + str(int(forward)) + " S:" + str(int(strafe)) + " T:" + str(int(turn))
-        logger.debug(debug_msg, ScreenTarget.BRAIN)
-        last_input_log_time = current_time
-
-    # # For usability reasons, decrease the sensitivity of turning while at forward/backward motion, using a continuous scaling factor
-    # if forward != 0:
-    #     turn *= 0.5 + (0.5 * (1 - abs(forward) / 100))
-    
-    # Clamp strafe or forward/backward to zero if one is close and the other is significant different, allowing precise straight or strafe movement
-    DOMINANT_AXIS_THRESHOLD = 50
-    MINOR_AXIS_THRESHOLD = 20    
-    
-    if abs(forward) > DOMINANT_AXIS_THRESHOLD and abs(strafe) < MINOR_AXIS_THRESHOLD:
-        strafe = 0
-    elif abs(strafe) > DOMINANT_AXIS_THRESHOLD and abs(forward) < MINOR_AXIS_THRESHOLD:
-        forward = 0
+    strafe = controller.get_button(ControllerSettings.STRAFE_RIGHT_BUTTON).pressing() - controller.get_button(ControllerSettings.STRAFE_LEFT_BUTTON).pressing()
 
     # Apply speed modifiers
     forward *= DrivetrainSettings.FORWARD_BACKWARD_SPEED_MODIFIER
-    strafe *= DrivetrainSettings.STRAFE_SPEED_MODIFIER
+    strafe *= DrivetrainSettings.STRAFE_SPEED_MODIFIER * 100 # Multiply by 100 since units from 1 to -1.
     turn *= DrivetrainSettings.TURN_SPEED_MODIFIER
 
     # Command the drivetrain to move
