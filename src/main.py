@@ -67,10 +67,9 @@ class ControllerSettings:
     """Controller configuration settings"""
     DEADZONE_THRESHOLD = 5  # Joystick deadzone threshold. Values within this range are ignored to prevent drift.
     
-    LEFT_MAIN_AXIS = 3
-    LEFT_STRAFE_AXIS = 4
-    RIGHT_MAIN_AXIS = 2
-    RIGHT_STRAFE_AXIS = 1
+    FORWARD_BACKWARD_AXIS = 3
+    STRAFE_AXIS = 4
+    TURN_AXIS = 1
 
     INTAKE_BUTTON = 'R1'
     OUTPUT_LOW_BUTTON = 'R2'
@@ -580,23 +579,34 @@ def update_drivetrain():
     global last_input_log_time
     
     # Get joystick values with deadzone applied
-    forward_left = controller.get_axis_with_deadzone(ControllerSettings.LEFT_MAIN_AXIS)
-    forward_right = controller.get_axis_with_deadzone(ControllerSettings.RIGHT_MAIN_AXIS)
-    strafe_left = controller.get_axis_with_deadzone(ControllerSettings.LEFT_STRAFE_AXIS)
-    strafe_right = controller.get_axis_with_deadzone(ControllerSettings.RIGHT_STRAFE_AXIS)
+    forward = controller.get_axis_with_deadzone(ControllerSettings.FORWARD_BACKWARD_AXIS)
+    strafe = controller.get_axis_with_deadzone(ControllerSettings.STRAFE_AXIS)
+    turn = controller.get_axis_with_deadzone(ControllerSettings.TURN_AXIS)
 
-    # Compile speeds
-    forward = (forward_left + forward_right) / 2
-    turn = (forward_left - forward_right) / 2
-    strafe = (strafe_left + strafe_right) / 2
+    # Log significant inputs occasionally (not every loop to avoid spam)
+    current_time = brain.timer.time()
+    if (abs(forward) > 50 or abs(strafe) > 50 or abs(turn) > 50) and \
+       (current_time - last_input_log_time > 2000):  # Log every 2 seconds max
+        debug_msg = "Driver input: F:" + str(int(forward)) + " S:" + str(int(strafe)) + " T:" + str(int(turn))
+        logger.debug(debug_msg, ScreenTarget.BRAIN)
+        last_input_log_time = current_time
 
-    # Clamp strafe if other axis 0
-    if (strafe_left == 0 or strafe_right == 0):
+    # # For usability reasons, decrease the sensitivity of turning while at forward/backward motion, using a continuous scaling factor
+    # if forward != 0:
+    #     turn *= 0.5 + (0.5 * (1 - abs(forward) / 100))
+    
+    # Clamp strafe or forward/backward to zero if one is close and the other is significant different, allowing precise straight or strafe movement
+    DOMINANT_AXIS_THRESHOLD = 50
+    MINOR_AXIS_THRESHOLD = 20    
+    
+    if abs(forward) > DOMINANT_AXIS_THRESHOLD and abs(strafe) < MINOR_AXIS_THRESHOLD:
         strafe = 0
+    elif abs(strafe) > DOMINANT_AXIS_THRESHOLD and abs(forward) < MINOR_AXIS_THRESHOLD:
+        forward = 0
 
     # Apply speed modifiers
     forward *= DrivetrainSettings.FORWARD_BACKWARD_SPEED_MODIFIER
-    strafe *= DrivetrainSettings.STRAFE_SPEED_MODIFIER * 100 # Multiply by 100 since units from 1 to -1.
+    strafe *= DrivetrainSettings.STRAFE_SPEED_MODIFIER
     turn *= DrivetrainSettings.TURN_SPEED_MODIFIER
 
     # Command the drivetrain to move
