@@ -67,11 +67,10 @@ class ControllerSettings:
     """Controller configuration settings"""
     DEADZONE_THRESHOLD = 5  # Joystick deadzone threshold. Values within this range are ignored to prevent drift.
     
-    FORWARD_BACKWARD_AXIS = 2
-    TURN_AXIS = 1
-
-    STRAFE_LEFT_BUTTON = "Left"
-    STRAFE_RIGHT_BUTTON = "Right"
+    LEFT_MAIN_AXIS = 3
+    LEFT_STRAFE_AXIS = 4
+    RIGHT_MAIN_AXIS = 2
+    RIGHT_STRAFE_AXIS = 1
 
     INTAKE_BUTTON = 'R1'
     OUTPUT_LOW_BUTTON = 'R2'
@@ -581,9 +580,19 @@ def update_drivetrain():
     global last_input_log_time
     
     # Get joystick values with deadzone applied
-    forward = controller.get_axis_with_deadzone(ControllerSettings.FORWARD_BACKWARD_AXIS)
-    turn = controller.get_axis_with_deadzone(ControllerSettings.TURN_AXIS)
-    strafe = controller.get_button(ControllerSettings.STRAFE_RIGHT_BUTTON).pressing() - controller.get_button(ControllerSettings.STRAFE_LEFT_BUTTON).pressing()
+    forward_left = controller.get_axis_with_deadzone(ControllerSettings.LEFT_MAIN_AXIS)
+    forward_right = controller.get_axis_with_deadzone(ControllerSettings.RIGHT_MAIN_AXIS)
+    strafe_left = controller.get_axis_with_deadzone(ControllerSettings.LEFT_STRAFE_AXIS)
+    strafe_right = controller.get_axis_with_deadzone(ControllerSettings.RIGHT_STRAFE_AXIS)
+
+    # Compile speeds
+    forward = (forward_left + forward_right) / 2
+    turn = (forward_left - forward_right) / 2
+    strafe = (strafe_left + strafe_right) / 2
+
+    # Clamp strafe if other axis 0
+    if (strafe_left == 0 or strafe_right == 0):
+        strafe = 0
 
     # Apply speed modifiers
     forward *= DrivetrainSettings.FORWARD_BACKWARD_SPEED_MODIFIER
