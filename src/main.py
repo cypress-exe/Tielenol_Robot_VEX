@@ -73,6 +73,10 @@ class ControllerSettings:
     STRAFE_LEFT_BUTTON = "Left"
     STRAFE_RIGHT_BUTTON = "Right"
 
+    # Fine Control buttons
+    FC_FORWARD_BUTTON = "Up"
+    FC_BACKWARD_BUTTON = "Down"
+
     INTAKE_BUTTON = 'R1'
     OUTPUT_LOW_BUTTON = 'R2'
     OUTPUT_MEDIUM_BUTTON = 'L2'
@@ -212,7 +216,7 @@ class Logger:
 
 
 # =============================================================================
-# CUSTOM CONTROLLER
+# CUSTOM COMPONENTS
 # =============================================================================
 
 class CustomController(Controller):
@@ -265,6 +269,20 @@ class CustomController(Controller):
         else:
             raise ValueError("Invalid button name")
 
+class WheelMotor(Motor):
+    def __init__(self, port, gear_setting=GearSetting.RATIO_18_1, reversed=False, wheel_diameter_mm=100.0):
+        super().__init__(port, gear_setting, reversed)
+        self.wheel_diameter_mm: float = wheel_diameter_mm
+
+class WheelMotorGroup(MotorGroup):
+    def __init__(self, *motors: WheelMotor):
+        super().__init__(*motors)
+
+        if [obj.wheel_diameter_mm for obj in motors].count(motors[0].wheel_diameter_mm) != len(motors):
+            raise ValueError("All motors in WheelMotorGroup must have the same wheel_diameter_mm")
+        
+        self.wheel_diameter_mm: float = motors[0].wheel_diameter_mm if motors else 100.0
+
 # =============================================================================
 # DRIVETRAIN ABSTRACTION
 # =============================================================================
@@ -272,9 +290,9 @@ class CustomController(Controller):
 class Drivetrain:
     def __init__(
         self,
-        left_motor: MotorGroup | Motor,
-        right_motor: MotorGroup | Motor,
-        strafe_motor: MotorGroup | Motor,
+        left_motor: WheelMotorGroup | WheelMotor,
+        right_motor: WheelMotorGroup | WheelMotor,
+        strafe_motor: WheelMotorGroup | WheelMotor,
         inertia_sensor: Inertial,
     ):
         """
@@ -290,6 +308,9 @@ class Drivetrain:
         self.right_motor = right_motor
         self.strafe_motor = strafe_motor
         self.inertia_sensor = inertia_sensor
+
+        # Movement Override. When True, manual control should NOT be applied.
+        self.movement_override = False
 
     def drive(self, forward, strafe, turn):
         """
@@ -307,7 +328,65 @@ class Drivetrain:
         self.left_motor.spin(FORWARD, left_speed, PERCENT)
         self.right_motor.spin(FORWARD, right_speed, PERCENT)
         self.strafe_motor.spin(FORWARD, strafe_speed, PERCENT)
-    
+
+    def drive_for_blind(self, forward, strafe):
+        """
+        Drive the robot for a specific distance using arcade-style controls.
+        This method does not use feedback from the inertial sensor, and is thus "blind".
+        Units: millimeters (MM)
+        
+        Args:
+            forward: Forward/backward speed (-100 to 100)
+            strafe: Left/right strafe speed (-100 to 100)
+            distance: Distance to drive
+        """
+        self.movement_override = True
+
+        drivetrain.stop()
+
+        left_distance = forward
+        right_distance = forward
+        strafe_distance = strafe
+
+        # Perform calculation to figure out how many revolutions each motor needs to turn
+        left_motor_rotations = left_distance / (3.14159 * self.left_motor.wheel_diameter_mm) * 360
+        right_motor_rotations = right_distance / (3.14159 * self.right_motor.wheel_diameter_mm) * 360
+        strafe_motor_rotations = strafe_distance / (3.14159 * self.strafe_motor.wheel_diameter_mm) * 360
+
+        # Store current braking mode and set to BRAKE for precise stopping
+        current_braking_mode = RobotState.current_braking_mode
+        self.set_stopping_mode(BRAKE)
+
+        # Store current motor speeds
+        left_motor_speed = self.left_motor.velocity(PERCENT)
+        right_motor_speed = self.right_motor.velocity(PERCENT)
+        strafe_motor_speed = self.strafe_motor.velocity(PERCENT)
+
+        # Update motor speeds to 100% for driving
+        self.left_motor.set_velocity(100, PERCENT)
+        self.right_motor.set_velocity(100, PERCENT)
+        self.strafe_motor.set_velocity(100, PERCENT)
+
+        self.left_motor.spin_for(FORWARD, left_motor_rotations, DEGREES, wait=False)
+        self.right_motor.spin_for(FORWARD, right_motor_rotations, DEGREES, wait=False)
+        self.strafe_motor.spin_for(FORWARD, strafe_motor_rotations, DEGREES, wait=False)
+        
+        # Wait for motors to stop spinning
+        timer = Timer()
+        while (self.left_motor.is_spinning() or self.right_motor.is_spinning() or self.strafe_motor.is_spinning()) \
+            and timer.time() < 5000: # 5 second timeout
+            wait(10, MSEC)
+
+        # Restore previous braking mode
+        self.set_stopping_mode(current_braking_mode)
+
+        # Restore previous motor speeds
+        self.left_motor.set_velocity(left_motor_speed, PERCENT)
+        self.right_motor.set_velocity(right_motor_speed, PERCENT)
+        self.strafe_motor.set_velocity(strafe_motor_speed, PERCENT)
+
+        self.movement_override = False
+
     def stop(self, brake_type=BRAKE):
         """
         Stop all drivetrain motors
@@ -352,19 +431,24 @@ class Drivetrain:
 controller = CustomController()
 brain = Brain()
 
+class Wheels:
+    class Diameters:
+        DRIVE_WHEEL_DIAMETER_MM = 105  # Diameter of the drive wheels in millimeters
+        STRAFE_WHEEL_DIAMETER_MM = 105   # Diameter of the strafing wheel in millimeters
+
 class Motors:
     # Individual drive motors
-    left_front_motor = Motor(Ports.PORT7, GearSetting.RATIO_18_1, False)
-    left_back_motor = Motor(Ports.PORT10, GearSetting.RATIO_18_1, False)
-    right_front_motor = Motor(Ports.PORT9, GearSetting.RATIO_18_1, True)
-    right_back_motor = Motor(Ports.PORT8, GearSetting.RATIO_18_1, True)
+    left_front_motor = WheelMotor(Ports.PORT7, GearSetting.RATIO_18_1, False, Wheels.Diameters.DRIVE_WHEEL_DIAMETER_MM)
+    left_back_motor = WheelMotor(Ports.PORT10, GearSetting.RATIO_18_1, False, Wheels.Diameters.DRIVE_WHEEL_DIAMETER_MM)
+    right_front_motor = WheelMotor(Ports.PORT9, GearSetting.RATIO_18_1, True, Wheels.Diameters.DRIVE_WHEEL_DIAMETER_MM)
+    right_back_motor = WheelMotor(Ports.PORT8, GearSetting.RATIO_18_1, True, Wheels.Diameters.DRIVE_WHEEL_DIAMETER_MM)
 
     # Strafing motor
-    strafe_motor = Motor(Ports.PORT11, GearSetting.RATIO_18_1, False)
+    strafe_motor = WheelMotor(Ports.PORT11, GearSetting.RATIO_18_1, False, Wheels.Diameters.STRAFE_WHEEL_DIAMETER_MM)
     
     # Motor groups for efficient control
-    left_motor_group = MotorGroup(left_front_motor, left_back_motor)
-    right_motor_group = MotorGroup(right_front_motor, right_back_motor)
+    left_motor_group = WheelMotorGroup(left_front_motor, left_back_motor)
+    right_motor_group = WheelMotorGroup(right_front_motor, right_back_motor)
 
     # Intake
     bottom_intake_motor = Motor(Ports.PORT6, GearSetting.RATIO_18_1, False)
@@ -562,6 +646,9 @@ def driver_control_entrypoint():
     # Register callbacks for buttons
     controller.get_button(ControllerSettings.COLOR_SWITCH_BUTTON).pressed(switch_alliance_color)
     controller.get_button(ControllerSettings.BRAKING_SWITCH_BUTTON).pressed(switch_braking_mode) 
+
+    controller.get_button(ControllerSettings.FC_FORWARD_BUTTON).pressed(lambda: drivetrain.drive_for_blind(100, 0))
+    controller.get_button(ControllerSettings.FC_BACKWARD_BUTTON).pressed(lambda: drivetrain.drive_for_blind(-100, 0))
     
     try:
         drivetrain.set_stopping_mode(RobotState.current_braking_mode)
@@ -579,6 +666,9 @@ def driver_control_entrypoint():
 def update_drivetrain():
     """To be called repeatedly in driver control mode to update the drivetrain"""
     global last_input_log_time
+
+    if drivetrain.movement_override:
+        return  # Skip manual control if movement override is active
     
     # Get joystick values with deadzone applied
     forward = controller.get_axis_with_deadzone(ControllerSettings.FORWARD_BACKWARD_AXIS)
