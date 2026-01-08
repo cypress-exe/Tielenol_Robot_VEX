@@ -336,9 +336,8 @@ class Drivetrain:
         Units: millimeters (MM)
         
         Args:
-            forward: Forward/backward speed (-100 to 100)
-            strafe: Left/right strafe speed (-100 to 100)
-            distance: Distance to drive
+            forward: Forward/backward distance in millimeters (MM)
+            strafe: Left/right strafe distance in millimeters (MM)
         """
         self.movement_override = True
 
@@ -621,11 +620,7 @@ def autonomous_entrypoint():
         # Example autonomous routine with logging
         logger.info("Starting autonomous routine")
         
-        # Add your autonomous code here
-        # For example:
-        # logger.info("Moving forward...")
-        # drivetrain.drive_distance(1000)  # hypothetical method
-        # logger.info("Turn completed")
+        drivetrain.drive_for_blind(100, 50)
         
         logger.info("Autonomous routine completed successfully")
 
