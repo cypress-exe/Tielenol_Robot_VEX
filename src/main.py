@@ -387,6 +387,53 @@ class Drivetrain:
 
         self.movement_override = False
 
+    def turn_for_blind(self, angle_degrees, speed=50):
+        """
+        Turn the robot for a specific angle using the inertial sensor.
+        This method uses feedback from the inertial sensor to achieve accurate turns.
+        
+        Args:
+            angle_degrees: Angle to turn in degrees (positive for clockwise, negative for counter-clockwise)
+            speed: Speed percentage (0 to 100)
+        """
+        self.movement_override = True
+
+        drivetrain.stop()
+
+        # Store current heading
+        initial_heading = self.inertia_sensor.heading()
+
+        # Calculate target heading
+        target_heading = (initial_heading + angle_degrees) % 360
+
+        # Store current braking mode and set to BRAKE for precise stopping
+        current_braking_mode = RobotState.current_braking_mode
+        self.set_stopping_mode(BRAKE)
+
+        # Start turning
+        if angle_degrees > 0:
+            self.left_motor.spin(FORWARD, speed, PERCENT)
+            self.right_motor.spin(REVERSE, speed, PERCENT)
+        else:
+            self.left_motor.spin(REVERSE, speed, PERCENT)
+            self.right_motor.spin(FORWARD, speed, PERCENT)
+
+        # Continue turning until target heading is reached
+        while True:
+            current_heading = self.inertia_sensor.heading()
+            heading_difference = (target_heading - current_heading + 360) % 360
+            if heading_difference < 1.0 or heading_difference > 359.0:
+                break
+            wait(10, MSEC)
+
+        # Stop motors
+        self.stop()
+
+        # Restore previous braking mode
+        self.set_stopping_mode(current_braking_mode)
+
+        self.movement_override = False
+
     def stop(self, brake_type=BRAKE):
         """
         Stop all drivetrain motors
@@ -631,7 +678,7 @@ def autonomous_entrypoint():
         # Pick up blocks
         block_manipulation_system.set_and_update_state(BlockManipulationSystemState.INTAKING)
         wait(100, MSEC)  # Simulate time taken to intake blocks
-        drivetrain.drive_for_blind(500, 0, 25)
+        drivetrain.drive_for_blind(500, 0, 15)
         wait(2000, MSEC)  # Wait for capture system
         block_manipulation_system.set_and_update_state(BlockManipulationSystemState.IDLE)
 
