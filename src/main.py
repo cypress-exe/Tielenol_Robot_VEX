@@ -329,7 +329,7 @@ class Drivetrain:
         self.right_motor.spin(FORWARD, right_speed, PERCENT)
         self.strafe_motor.spin(FORWARD, strafe_speed, PERCENT)
 
-    def drive_for_blind(self, forward, strafe):
+    def drive_for_blind(self, forward, strafe, speed=100):
         """
         Drive the robot for a specific distance using arcade-style controls.
         This method does not use feedback from the inertial sensor, and is thus "blind".
@@ -338,6 +338,7 @@ class Drivetrain:
         Args:
             forward: Forward/backward distance in millimeters (MM)
             strafe: Left/right strafe distance in millimeters (MM)
+            speed: Speed percentage (0 to 100)
         """
         self.movement_override = True
 
@@ -362,9 +363,9 @@ class Drivetrain:
         strafe_motor_speed = self.strafe_motor.velocity(PERCENT)
 
         # Update motor speeds to 100% for driving
-        self.left_motor.set_velocity(100, PERCENT)
-        self.right_motor.set_velocity(100, PERCENT)
-        self.strafe_motor.set_velocity(100, PERCENT)
+        self.left_motor.set_velocity(speed, PERCENT)
+        self.right_motor.set_velocity(speed, PERCENT)
+        self.strafe_motor.set_velocity(speed, PERCENT)
 
         self.left_motor.spin_for(FORWARD, left_motor_rotations, DEGREES, wait=False)
         self.right_motor.spin_for(FORWARD, right_motor_rotations, DEGREES, wait=False)
@@ -503,6 +504,10 @@ class BlockManipulationSystem:
     def set_state(self, new_state):
         self.state = new_state
 
+    def set_and_update_state(self, new_state):
+        self.set_state(new_state)
+        self.update()
+
     def update(self):
         """Main tick function to update the system based on current state"""
         if self.state == BlockManipulationSystemState.INTAKING:
@@ -620,8 +625,16 @@ def autonomous_entrypoint():
         # Example autonomous routine with logging
         logger.info("Starting autonomous routine")
         
-        drivetrain.drive_for_blind(100, 50)
+        # Move to blocks
+        drivetrain.drive_for_blind(580, 150)
         
+        # Pick up blocks
+        block_manipulation_system.set_and_update_state(BlockManipulationSystemState.INTAKING)
+        wait(100, MSEC)  # Simulate time taken to intake blocks
+        drivetrain.drive_for_blind(500, 0, 25)
+        wait(2000, MSEC)  # Wait for capture system
+        block_manipulation_system.set_and_update_state(BlockManipulationSystemState.IDLE)
+
         logger.info("Autonomous routine completed successfully")
 
     except Exception as e:
