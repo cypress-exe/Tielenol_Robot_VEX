@@ -387,7 +387,7 @@ class Drivetrain:
 
         self.movement_override = False
 
-    def turn_for_blind(self, angle_degrees, speed=50):
+    def turn_for(self, angle_degrees, speed=50):
         """
         Turn the robot for a specific angle using the inertial sensor.
         This method uses feedback from the inertial sensor to achieve accurate turns.
@@ -681,6 +681,12 @@ def autonomous_entrypoint():
         drivetrain.drive_for_blind(500, 0, 15)
         wait(2000, MSEC)  # Wait for capture system
         block_manipulation_system.set_and_update_state(BlockManipulationSystemState.IDLE)
+
+        # Reorient towards goal
+        drivetrain.drive_for_blind(-200, 0, 50)
+        drivetrain.turn_for(-45, 50)
+        drivetrain.drive_for_blind(100, 0, 50)
+
 
         logger.info("Autonomous routine completed successfully")
 
