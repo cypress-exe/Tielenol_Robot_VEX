@@ -52,6 +52,46 @@ class AllianceColor:
     
     def __hash__(self) -> int:
         return hash(self.__color_name)
+    
+class Side:
+    def __init__(self, default):
+        self.set(default)
+        
+    def set(self, value):
+        if isinstance(value, Side):
+            self.__side = value.__side
+        elif value.upper() in ['LEFT', 'RIGHT']:
+            self.__side = value.upper()
+        else:
+            raise ValueError("Invalid side name. Choose 'LEFT' or 'RIGHT'.")
+        
+    def __invert__(self):
+        if self.__side == 'LEFT':
+            self.__side = 'RIGHT'
+        else:
+            self.__side = 'LEFT'
+
+    def __eq__(self, value: object) -> bool:
+        if isinstance(value, Side):
+            return self.__side == value.__side
+        if isinstance(value, str):
+            return self.__side.lower() == value.lower()
+        return False
+    
+    def __str__(self) -> str:
+        return self.__side
+    
+    def __ne__(self, value: object) -> bool:
+        if isinstance(value, Side):
+            return self.__side != value.__side
+        if isinstance(value, str):
+            return self.__side.lower() != value.lower()
+        return True
+    
+    def __hash__(self) -> int:
+        return hash(self.__side)
+
+    
 
 # =============================================================================
 # SETTINGS CONFIGURATION
@@ -69,7 +109,11 @@ class ControllerSettings:
     
     FORWARD_BACKWARD_AXIS = 3
     TURN_AXIS = 1
+    # =============================== Autonomous ===============================
+    LEFT_SIDE_SELECTION_BUTTON = "Left"
+    RIGHT_SIDE_SELECTION_BUTTON = "Right"
 
+    # ============================== Drivercontrol ==============================
     STRAFE_LEFT_BUTTON = "Left"
     STRAFE_RIGHT_BUTTON = "Right"
 
@@ -92,6 +136,7 @@ class RobotState:
 
     current_alliance_color = AllianceColor("red")  # Default alliance color: 'RED' or 'BLUE'
     current_braking_mode = COAST # Braking mode for drivetrain motors: BRAKE, COAST, or HOLD
+    starting_side = Side("RIGHT")
     
 # =============================================================================
 # LOGGING SYSTEM
@@ -506,7 +551,7 @@ class Solenoids:
     intake_solenoid = Pneumatics(brain.three_wire_port.h)
 
 class Sensors:
-    inertia_sensor = Inertial(Ports.PORT6)
+    inertia_sensor = Inertial(Ports.PORT18)
     intake_optical_sensor_right = Optical(Ports.PORT5)
     intake_optical_sensor_left = Optical(Ports.PORT4)
 
@@ -662,6 +707,18 @@ block_manipulation_system = BlockManipulationSystem()
 # GAME MODES
 # =============================================================================
 
+# ======================= PRE-AUTONOMOUS MODE ========================
+def pre_auton_setup():
+    # Bind side seletion buttons
+    controller.get_button(ControllerSettings.FC_FORWARD_BUTTON).pressed(lambda: change_starting_side("LEFT"))
+    controller.get_button(ControllerSettings.FC_BACKWARD_BUTTON).pressed(lambda: change_starting_side("RIGHT"))
+    controller.get_button(ControllerSettings.COLOR_SWITCH_BUTTON).pressed(switch_alliance_color) # Keep after pre-auton
+
+def pre_auton_cleanup():
+    # Unbind buttons to prevent conflicts
+    controller.get_button(ControllerSettings.FC_FORWARD_BUTTON).pressed(lambda: None)
+    controller.get_button(ControllerSettings.FC_BACKWARD_BUTTON).pressed(lambda: None)
+
 # ======================== AUTONOMOUS MODE ========================
 
 def autonomous_entrypoint():
@@ -669,23 +726,77 @@ def autonomous_entrypoint():
     logger.info("=== AUTONOMOUS MODE STARTED ===", ScreenTarget.BOTH)
     
     try:
+        pre_auton_cleanup()
+    except Exception as e:
+        logger.error("Failed to clean up pre-autonomous setup: " + str(e))
+
+    try:
         # Example autonomous routine with logging
         logger.info("Starting autonomous routine")
-        
-        # Move to blocks
-        drivetrain.drive_for_blind(580, 150)
-        
-        # Pick up blocks
-        block_manipulation_system.set_and_update_state(BlockManipulationSystemState.INTAKING)
-        wait(100, MSEC)  # Simulate time taken to intake blocks
-        drivetrain.drive_for_blind(500, 0, 15)
-        wait(2000, MSEC)  # Wait for capture system
-        block_manipulation_system.set_and_update_state(BlockManipulationSystemState.IDLE)
 
-        # Reorient towards goal
-        drivetrain.drive_for_blind(-200, 0, 50)
-        drivetrain.turn_for(-45, 50)
-        drivetrain.drive_for_blind(100, 0, 50)
+        current_aliance_color = RobotState.current_alliance_color = AllianceColor("unknown")  # Set to unknown to disable color-based rejection
+
+        if RobotState.starting_side == "RIGHT":
+            # Move to blocks
+            drivetrain.drive_for_blind(580, 150, 50)
+            
+            # Pick up blocks
+            block_manipulation_system.set_and_update_state(BlockManipulationSystemState.INTAKING)
+            wait(100, MSEC)  # Simulate time taken to intake blocks
+            drivetrain.drive_for_blind(630, 0, 10)
+            wait(2000, MSEC)  # Wait for capture system
+            block_manipulation_system.set_and_update_state(BlockManipulationSystemState.IDLE)
+
+            # Reorient towards goal
+            drivetrain.turn_for(-45, 50)
+            drivetrain.drive_for_blind(230, 0, 50)
+            # drivetrain.drive_for_blind(-10, -50, 50)
+
+            # Score blocks
+            block_manipulation_system.set_and_update_state(BlockManipulationSystemState.OUTPUTTING_LOW)
+            wait(5000, MSEC)  # Simulate time taken to output blocks
+            block_manipulation_system.set_and_update_state(BlockManipulationSystemState.IDLE)
+
+            # for _ in range(3):
+            #     block_manipulation_system.set_and_update_state(BlockManipulationSystemState.OUTPUTTING_LOW)
+            #     wait(1000, MSEC)
+            #     block_manipulation_system.set_and_update_state(BlockManipulationSystemState.IDLE)
+
+            #     wait(500, MSEC)
+                
+            #     drivetrain.drive_for_blind(-100, 0, 100)
+            #     for _ in range(3):
+            #         # Shake
+            #         drivetrain.drive_for_blind(50, 0, 100)
+            #         drivetrain.drive_for_blind(-50, 0, 100)
+
+            #     wait(100, MSEC)
+            #     drivetrain.drive_for_blind(100, 0, 100)
+
+        else:
+            # Left side
+
+            # Move to blocks
+            drivetrain.drive_for_blind(580, -150, 50)
+            
+            # Pick up blocks
+            block_manipulation_system.set_and_update_state(BlockManipulationSystemState.INTAKING)
+            wait(100, MSEC)  # Simulate time taken to intake blocks
+            drivetrain.drive_for_blind(630, 0, 10)
+            wait(2000, MSEC)  # Wait for capture system
+            block_manipulation_system.set_and_update_state(BlockManipulationSystemState.IDLE)
+
+            # Reorient towards goal
+            drivetrain.turn_for(45, 50)
+            drivetrain.drive_for_blind(230, 0, 50)
+            drivetrain.drive_for_blind(0, 100, 50)
+
+            # Score blocks
+            block_manipulation_system.set_and_update_state(BlockManipulationSystemState.OUTPUTTING_MEDIUM)
+            wait(5000, MSEC)  # Simulate time taken to output blocks
+            block_manipulation_system.set_and_update_state(BlockManipulationSystemState.IDLE)
+
+        RobotState.current_alliance_color = current_aliance_color  # Restore alliance color
 
 
         logger.info("Autonomous routine completed successfully")
@@ -705,7 +816,6 @@ def driver_control_entrypoint():
     logger.info("=== DRIVER CONTROL MODE STARTED ===", ScreenTarget.BOTH)
 
     # Register callbacks for buttons
-    controller.get_button(ControllerSettings.COLOR_SWITCH_BUTTON).pressed(switch_alliance_color)
     controller.get_button(ControllerSettings.BRAKING_SWITCH_BUTTON).pressed(switch_braking_mode) 
 
     controller.get_button(ControllerSettings.FC_FORWARD_BUTTON).pressed(lambda: drivetrain.drive_for_blind(100, 0))
@@ -770,6 +880,12 @@ def update_block_manipulation_systems_state():
         block_manipulation_system.set_state(BlockManipulationSystemState.IDLE)
 
     block_manipulation_system.update()
+
+def change_starting_side(value):
+    """Change the starting side of the robot"""
+    RobotState.starting_side.set(value)
+    logger.info("Starting side set to " + str(RobotState.starting_side), ScreenTarget.BRAIN)
+    logger.info("Starting side: " + str(RobotState.starting_side), ScreenTarget.CONTROLLER)
 
 def switch_alliance_color():
     """Switch the current alliance color"""
