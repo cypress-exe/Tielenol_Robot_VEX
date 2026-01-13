@@ -788,8 +788,8 @@ def autonomous_entrypoint():
 
             # Reorient towards goal
             drivetrain.turn_for(45, 50)
-            drivetrain.drive_for_blind(230, 0, 50)
-            drivetrain.drive_for_blind(0, 100, 50)
+            drivetrain.drive_for_blind(240, 0, 50)
+            # drivetrain.drive_for_blind(0, 100, 50)
 
             # Score blocks
             block_manipulation_system.set_and_update_state(BlockManipulationSystemState.OUTPUTTING_MEDIUM)
@@ -944,5 +944,7 @@ logger.info("Battery: " + battery_voltage + "V " + battery_current + "A")
 # Create competition instance
 comp = Competition(driver_control_entrypoint, autonomous_entrypoint)
 
+# Start pre-auton
+pre_auton_setup()
 # Actions to do when the program starts
 logger.info("Robot initialized and ready", ScreenTarget.BOTH)
