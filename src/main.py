@@ -374,7 +374,7 @@ class Drivetrain:
         self.right_motor.spin(FORWARD, right_speed, PERCENT)
         self.strafe_motor.spin(FORWARD, strafe_speed, PERCENT)
 
-    def drive_for_blind(self, forward, strafe, speed=100):
+    def drive_for_blind(self, forward, strafe, speed=100, brake_type=BRAKE):
         """
         Drive the robot for a specific distance using arcade-style controls.
         This method does not use feedback from the inertial sensor, and is thus "blind".
@@ -384,6 +384,7 @@ class Drivetrain:
             forward: Forward/backward distance in millimeters (MM)
             strafe: Left/right strafe distance in millimeters (MM)
             speed: Speed percentage (0 to 100)
+            brake_type: Type of braking to apply at the end of movement (BRAKE, COAST, or HOLD)
         """
         self.movement_override = True
 
@@ -400,7 +401,7 @@ class Drivetrain:
 
         # Store current braking mode and set to BRAKE for precise stopping
         current_braking_mode = RobotState.current_braking_mode
-        self.set_stopping_mode(BRAKE)
+        self.set_stopping_mode(brake_type)
 
         # Store current motor speeds
         left_motor_speed = self.left_motor.velocity(PERCENT)
@@ -946,5 +947,6 @@ comp = Competition(driver_control_entrypoint, autonomous_entrypoint)
 
 # Start pre-auton
 pre_auton_setup()
+
 # Actions to do when the program starts
 logger.info("Robot initialized and ready", ScreenTarget.BOTH)
