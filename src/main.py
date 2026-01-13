@@ -9,6 +9,7 @@
 
 # Library imports
 from vex import *
+from threading import Thread
 
 # ============================================================================
 # TYPES
@@ -125,6 +126,9 @@ class ControllerSettings:
     OUTPUT_LOW_BUTTON = 'R2'
     OUTPUT_MEDIUM_BUTTON = 'L2'
     OUTPUT_HIGH_BUTTON = 'L1'
+
+    DESCORER_TRIGGER_BUTTON = 'X'
+    MATCH_LOAD_UNLOADER_TOGGLE_BUTTON = 'Y'
 
     COLOR_SWITCH_BUTTON = "A"  # Button to switch alliance color
     BRAKING_SWITCH_BUTTON = "B"  # Button to switch braking mode
@@ -550,6 +554,8 @@ class Motors:
 
 class Solenoids:
     intake_solenoid = Pneumatics(brain.three_wire_port.h)
+    descorer_solenoid = Pneumatics(brain.three_wire_port.f)
+    match_load_unloader_solenoid = Pneumatics(brain.three_wire_port.d)
 
 class Sensors:
     inertia_sensor = Inertial(Ports.PORT18)
@@ -821,7 +827,9 @@ def driver_control_entrypoint():
 
     controller.get_button(ControllerSettings.FC_FORWARD_BUTTON).pressed(lambda: drivetrain.drive_for_blind(100, 0))
     controller.get_button(ControllerSettings.FC_BACKWARD_BUTTON).pressed(lambda: drivetrain.drive_for_blind(-100, 0))
-    
+    controller.get_button(ControllerSettings.DESCORER_TRIGGER_BUTTON).pressed(lambda: Thread(target=trigger_descorer).start())
+    controller.get_button(ControllerSettings.MATCH_LOAD_UNLOADER_TOGGLE_BUTTON).pressed(toggle_match_load_unloader)
+
     try:
         drivetrain.set_stopping_mode(RobotState.current_braking_mode)
 
@@ -928,6 +936,22 @@ def switch_braking_mode():
 
     logger.info("Drivetrain braking mode switched to " + str_name, ScreenTarget.BRAIN)
     logger.info(str_name + " braking mode.", ScreenTarget.CONTROLLER)
+
+def trigger_descorer():
+    """Trigger the descorer solenoid. This function is blocking, so it should be run in a separate thread."""
+    Solenoids.descorer_solenoid.open()
+    logger.debug("Descorer triggered", ScreenTarget.BOTH)
+    wait(500, MSEC)  # Keep descorer active for 500 milliseconds
+    Solenoids.descorer_solenoid.close()
+
+def toggle_match_load_unloader():
+    """Toggle the match load unloader motor"""
+    if Solenoids.match_load_unloader_solenoid.value():
+        Solenoids.match_load_unloader_solenoid.close()
+        logger.info("Match load unloader retracted", ScreenTarget.BOTH)
+    else:
+        Solenoids.match_load_unloader_solenoid.open()
+        logger.info("Match load unloader deployed", ScreenTarget.BOTH)
 
 # =============================================================================
 # MAIN PROGRAM
