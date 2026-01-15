@@ -9,7 +9,6 @@
 
 # Library imports
 from vex import *
-from threading import Thread
 
 # ============================================================================
 # TYPES
@@ -827,7 +826,7 @@ def driver_control_entrypoint():
 
     controller.get_button(ControllerSettings.FC_FORWARD_BUTTON).pressed(lambda: drivetrain.drive_for_blind(100, 0))
     controller.get_button(ControllerSettings.FC_BACKWARD_BUTTON).pressed(lambda: drivetrain.drive_for_blind(-100, 0))
-    controller.get_button(ControllerSettings.DESCORER_TRIGGER_BUTTON).pressed(lambda: Thread(target=trigger_descorer).start())
+    controller.get_button(ControllerSettings.DESCORER_TRIGGER_BUTTON).pressed(trigger_descorer)
     controller.get_button(ControllerSettings.MATCH_LOAD_UNLOADER_TOGGLE_BUTTON).pressed(toggle_match_load_unloader)
 
     try:
@@ -937,12 +936,16 @@ def switch_braking_mode():
     logger.info("Drivetrain braking mode switched to " + str_name, ScreenTarget.BRAIN)
     logger.info(str_name + " braking mode.", ScreenTarget.CONTROLLER)
 
-def trigger_descorer():
+def __trigger_descorer_thread():
     """Trigger the descorer solenoid. This function is blocking, so it should be run in a separate thread."""
     Solenoids.descorer_solenoid.open()
     logger.debug("Descorer triggered", ScreenTarget.BOTH)
     wait(500, MSEC)  # Keep descorer active for 500 milliseconds
     Solenoids.descorer_solenoid.close()
+
+def trigger_descorer():
+    """Trigger the descorer solenoid in a separate thread."""
+    Thread(__trigger_descorer_thread)
 
 def toggle_match_load_unloader():
     """Toggle the match load unloader motor"""
