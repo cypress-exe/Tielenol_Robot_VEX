@@ -440,51 +440,58 @@ class Drivetrain:
 
         self.movement_override = False
 
-    def turn_for(self, angle_degrees, speed=50):
+    def turn_for(self, angle_degrees, speed=50, timeout_ms=5000):
         """
         Turn the robot for a specific angle using the inertial sensor.
         This method uses feedback from the inertial sensor to achieve accurate turns.
-        
         Args:
             angle_degrees: Angle to turn in degrees (positive for clockwise, negative for counter-clockwise)
             speed: Speed percentage (0 to 100)
+            timeout_ms: Maximum time to wait for turn completion in milliseconds (default 5000ms)
         """
         self.movement_override = True
-
         drivetrain.stop()
-
-        # Store current heading
-        initial_heading = self.inertia_sensor.heading()
-
-        # Calculate target heading
-        target_heading = (initial_heading + angle_degrees) % 360
-
+        
         # Store current braking mode and set to BRAKE for precise stopping
         current_braking_mode = RobotState.current_braking_mode
         self.set_stopping_mode(BRAKE)
-
-        # Start turning
-        if angle_degrees > 0:
+        
+        # Calculate headings
+        initial_heading = self.inertia_sensor.heading()
+        target_heading = (initial_heading + angle_degrees) % 360
+        heading_difference = self._normalize_angle_difference(target_heading - initial_heading)
+        
+        # Turn based on shortest path
+        if heading_difference > 0:
+            # Turn clockwise
             self.left_motor.spin(FORWARD, speed, PERCENT)
             self.right_motor.spin(REVERSE, speed, PERCENT)
         else:
+            # Turn counter-clockwise
             self.left_motor.spin(REVERSE, speed, PERCENT)
             self.right_motor.spin(FORWARD, speed, PERCENT)
-
-        # Continue turning until target heading is reached
-        while True:
+        
+        # Start timeout timer
+        start_time = brain.timer.time(MSEC)
+        
+        # Continue turning until target heading is reached or timeout
+        while brain.timer.time(MSEC) - start_time < timeout_ms:
             current_heading = self.inertia_sensor.heading()
-            heading_difference = (target_heading - current_heading + 360) % 360
-            if heading_difference < 1.0 or heading_difference > 359.0:
+            heading_difference = self._normalize_angle_difference(target_heading - current_heading)
+            
+            # Stop if within tolerance
+            if abs(heading_difference) < 1.0:
                 break
+            
             wait(10, MSEC)
-
+        else:
+            logger.warning("Turn timed out before reaching target heading")
+        
         # Stop motors
         self.stop()
-
+        
         # Restore previous braking mode
         self.set_stopping_mode(current_braking_mode)
-
         self.movement_override = False
 
     def stop(self, brake_type=BRAKE):
@@ -520,6 +527,16 @@ class Drivetrain:
         self.left_motor.set_velocity(velocity, units)
         self.right_motor.set_velocity(velocity, units)
         self.strafe_motor.set_velocity(velocity, units)
+
+    def _normalize_angle_difference(self, angle_difference):
+        """Normalize angle difference to range [-180, 180] degrees"""
+        while angle_difference > 180:
+            angle_difference -= 360
+        while angle_difference < -180:
+            angle_difference += 360
+        return angle_difference
+
+
 
 # =============================================================================
 # ROBOT CONFIGURATION
