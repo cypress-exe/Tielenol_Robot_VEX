@@ -139,8 +139,10 @@ class RobotState:
 
     current_alliance_color = AllianceColor("red")  # Default alliance color: 'RED' or 'BLUE'
     current_braking_mode = COAST # Braking mode for drivetrain motors: BRAKE, COAST, or HOLD
-    starting_side = Side("RIGHT")
+    starting_side = Side("RIGHT") # Starting side for autonomous: 'LEFT' or 'RIGHT'
     
+
+
 # =============================================================================
 # LOGGING SYSTEM
 # =============================================================================
@@ -331,6 +333,8 @@ class WheelMotorGroup(MotorGroup):
         
         self.wheel_diameter_mm: float = motors[0].wheel_diameter_mm if motors else 100.0
 
+
+
 # =============================================================================
 # DRIVETRAIN ABSTRACTION
 # =============================================================================
@@ -377,7 +381,7 @@ class Drivetrain:
         self.right_motor.spin(FORWARD, right_speed, PERCENT)
         self.strafe_motor.spin(FORWARD, strafe_speed, PERCENT)
 
-    def drive_for_blind(self, forward, strafe, speed=100, brake_type=BRAKE):
+    def drive_for_blind(self, forward, right, speed=100, brake_type=BRAKE):
         """
         Drive the robot for a specific distance using arcade-style controls.
         This method does not use feedback from the inertial sensor, and is thus "blind".
@@ -385,7 +389,7 @@ class Drivetrain:
         
         Args:
             forward: Forward/backward distance in millimeters (MM)
-            strafe: Left/right strafe distance in millimeters (MM)
+            right: Left/right strafe distance in millimeters (MM). Positive is right, negative is left.
             speed: Speed percentage (0 to 100)
             brake_type: Type of braking to apply at the end of movement (BRAKE, COAST, or HOLD)
         """
@@ -395,7 +399,7 @@ class Drivetrain:
 
         left_distance = forward
         right_distance = forward
-        strafe_distance = strafe
+        strafe_distance = right
 
         # Perform calculation to figure out how many revolutions each motor needs to turn
         left_motor_rotations = left_distance / (3.14159 * self.left_motor.wheel_diameter_mm) * 360
@@ -521,11 +525,8 @@ class Drivetrain:
 # ROBOT CONFIGURATION
 # =============================================================================
 
-# Global instances of motors and sensors
-
-# Global instance of Controller & Brain
-controller = CustomController()
 brain = Brain()
+controller = CustomController()
 
 class Wheels:
     class Diameters:
@@ -572,8 +573,11 @@ class Sensors:
         cls.intake_optical_sensor_left.object_detect_threshold(40)
         cls.intake_optical_sensor_right.object_detect_threshold(40)
 
+        # Calibrate inertial sensor
+        logger.info("Calibrating inertial sensor...")
+        cls.inertia_sensor.calibrate()
+        logger.info("Inertial sensor calibration complete.")
 
-# Initialize sensors
 Sensors.initialize_sensors()
 
 # Create logger instance (requires brain and controller to be initialized)
@@ -582,25 +586,27 @@ logger = Logger(brain, controller)
 # Drivetrain instance using motor groups
 drivetrain = Drivetrain(Motors.left_motor_group, Motors.right_motor_group, Motors.strafe_motor, Sensors.inertia_sensor)
 
+
+
 # =============================================================================
 # BLOCK MANIPULATION SYSTEMS
 # =============================================================================
 
-class BlockManipulationSystemState:
-    IDLE = 0
-    INTAKING = 1
-    OUTPUTTING_LOW = 2
-    OUTPUTTING_MEDIUM = 3
-    OUTPUTTING_HIGH = 4
-
 class BlockManipulationSystem:
     def __init__(self):
-        self.state = BlockManipulationSystemState.IDLE
-        self.intaking = self.Intaking()
-        self.outputting = self.Outputting()
+        self._state = BlockManipulationSystem.State.IDLE
+        self._intaking = self._Intaking()
+        self._outputting = self._Outputting()
+
+    class State:
+        IDLE = 0
+        INTAKING = 1
+        OUTPUTTING_LOW = 2
+        OUTPUTTING_MEDIUM = 3
+        OUTPUTTING_HIGH = 4
 
     def set_state(self, new_state):
-        self.state = new_state
+        self._state = new_state
 
     def set_and_update_state(self, new_state):
         self.set_state(new_state)
@@ -608,18 +614,18 @@ class BlockManipulationSystem:
 
     def update(self):
         """Main tick function to update the system based on current state"""
-        if self.state == BlockManipulationSystemState.INTAKING:
-            self.intaking.handle_intaking()
-        elif self.state == BlockManipulationSystemState.OUTPUTTING_LOW:
-            self.outputting.handle_output_low()
-        elif self.state == BlockManipulationSystemState.OUTPUTTING_MEDIUM:
-            self.outputting.handle_output_medium()
-        elif self.state == BlockManipulationSystemState.OUTPUTTING_HIGH:
-            self.outputting.handle_output_high()
+        if self._state == BlockManipulationSystem.State.INTAKING:
+            self._intaking.handle_intaking()
+        elif self._state == BlockManipulationSystem.State.OUTPUTTING_LOW:
+            self._outputting.handle_output_low()
+        elif self._state == BlockManipulationSystem.State.OUTPUTTING_MEDIUM:
+            self._outputting.handle_output_medium()
+        elif self._state == BlockManipulationSystem.State.OUTPUTTING_HIGH:
+            self._outputting.handle_output_high()
         else:
-            self.handle_idle()
+            self._handle_idle()
 
-    class Intaking:
+    class _Intaking:
         reject_current_block = False
         last_trigger_time = 0
         def handle_intaking(self):
@@ -675,7 +681,7 @@ class BlockManipulationSystem:
                 self.reject_current_block = False
                 logger.debug("No block detected - accepting by default", ScreenTarget.BOTH)
 
-    class Outputting:
+    class _Outputting:
         def handle_output_low(self):
             """Output low logic"""
             Motors.bottom_intake_motor.spin(REVERSE, 100, PERCENT)
@@ -695,7 +701,7 @@ class BlockManipulationSystem:
             Motors.top_intake_motor.spin(FORWARD, 100, PERCENT)
             Motors.unloading_motor.spin(REVERSE, 100, PERCENT)
     
-    def handle_idle(self):
+    def _handle_idle(self):
         """Idle state - stop all motors"""
         Motors.bottom_intake_motor.stop(BRAKE)
         Motors.top_intake_motor.stop(BRAKE)
@@ -713,251 +719,267 @@ block_manipulation_system = BlockManipulationSystem()
 # GAME MODES
 # =============================================================================
 
-# ======================= PRE-AUTONOMOUS MODE ========================
-def pre_auton_setup():
-    # Bind side seletion buttons
-    controller.get_button(ControllerSettings.FC_FORWARD_BUTTON).pressed(lambda: change_starting_side("LEFT"))
-    controller.get_button(ControllerSettings.FC_BACKWARD_BUTTON).pressed(lambda: change_starting_side("RIGHT"))
-    controller.get_button(ControllerSettings.COLOR_SWITCH_BUTTON).pressed(switch_alliance_color) # Keep after pre-auton
+class Autonomous:
+    @classmethod
+    def start(cls):
+        """Start autonomous mode code. This function should not return."""
+        logger.info("=== AUTONOMOUS MODE STARTED ===")
 
-def pre_auton_cleanup():
-    # Unbind buttons to prevent conflicts
-    controller.get_button(ControllerSettings.FC_FORWARD_BUTTON).pressed(lambda: None)
-    controller.get_button(ControllerSettings.FC_BACKWARD_BUTTON).pressed(lambda: None)
+        try:
+            # Example autonomous routine with logging
+            logger.info("Starting autonomous routine")
 
-# ======================== AUTONOMOUS MODE ========================
+            current_alliance_color = RobotState.current_alliance_color = AllianceColor("unknown")  # Set to unknown to disable color-based rejection
 
-def autonomous_entrypoint():
-    """Executed once upon entering autonomous mode"""
-    logger.info("=== AUTONOMOUS MODE STARTED ===", ScreenTarget.BOTH)
-    
-    try:
-        pre_auton_cleanup()
-    except Exception as e:
-        logger.error("Failed to clean up pre-autonomous setup: " + str(e))
+            if RobotState.starting_side == "RIGHT":
+                cls.run_right_side_routine()
+            else:
+                cls.run_left_side_routine()
 
-    try:
-        # Example autonomous routine with logging
-        logger.info("Starting autonomous routine")
+            RobotState.current_alliance_color = current_alliance_color  # Restore alliance color
 
-        current_aliance_color = RobotState.current_alliance_color = AllianceColor("unknown")  # Set to unknown to disable color-based rejection
+            logger.info("Autonomous routine completed successfully")
 
-        if RobotState.starting_side == "RIGHT":
-            # Move to blocks
-            drivetrain.drive_for_blind(580, 150, 50)
+        except Exception as e:
+            logger.error("Autonomous routine failed: " + str(e))
+            logger.error("Emergency stop activated")
+        logger.info("=== AUTONOMOUS MODE ENDED ===")
+
+    @staticmethod
+    def run_right_side_routine():
+        """Run autonomous routine for right side starting position"""
+        # Move to blocks
+        drivetrain.drive_for_blind(580, 150, 50)
+        
+        # Pick up blocks
+        block_manipulation_system.set_and_update_state(BlockManipulationSystem.State.INTAKING)
+        wait(100, MSEC)  # Simulate time taken to intake blocks
+        drivetrain.drive_for_blind(630, 0, 10)
+        wait(2000, MSEC)  # Wait for capture system
+        block_manipulation_system.set_and_update_state(BlockManipulationSystem.State.IDLE)
+
+        # Reorient towards goal
+        drivetrain.turn_for(-45, 50)
+        drivetrain.drive_for_blind(230, 0, 50)
+        # drivetrain.drive_for_blind(-10, -50, 50)
+
+        # Score blocks
+        block_manipulation_system.set_and_update_state(BlockManipulationSystem.State.OUTPUTTING_LOW)
+        wait(5000, MSEC)  # Simulate time taken to output blocks
+        block_manipulation_system.set_and_update_state(BlockManipulationSystem.State.IDLE)
+
+        # for _ in range(3):
+        #     block_manipulation_system.set_and_update_state(BlockManipulationSystem.State.OUTPUTTING_LOW)
+        #     wait(1000, MSEC)
+        #     block_manipulation_system.set_and_update_state(BlockManipulationSystem.State.IDLE)
+
+        #     wait(500, MSEC)
             
-            # Pick up blocks
-            block_manipulation_system.set_and_update_state(BlockManipulationSystemState.INTAKING)
-            wait(100, MSEC)  # Simulate time taken to intake blocks
-            drivetrain.drive_for_blind(630, 0, 10)
-            wait(2000, MSEC)  # Wait for capture system
-            block_manipulation_system.set_and_update_state(BlockManipulationSystemState.IDLE)
+        #     drivetrain.drive_for_blind(-100, 0, 100)
+        #     for _ in range(3):
+        #         # Shake
+        #         drivetrain.drive_for_blind(50, 0, 100)
+        #         drivetrain.drive_for_blind(-50, 0, 100)
 
-            # Reorient towards goal
-            drivetrain.turn_for(-45, 50)
-            drivetrain.drive_for_blind(230, 0, 50)
-            # drivetrain.drive_for_blind(-10, -50, 50)
+        #     wait(100, MSEC)
+        #     drivetrain.drive_for_blind(100, 0, 100)
 
-            # Score blocks
-            block_manipulation_system.set_and_update_state(BlockManipulationSystemState.OUTPUTTING_LOW)
-            wait(5000, MSEC)  # Simulate time taken to output blocks
-            block_manipulation_system.set_and_update_state(BlockManipulationSystemState.IDLE)
+    @staticmethod
+    def run_left_side_routine():
+        """Run autonomous routine for left side starting position"""
+        # Move to blocks
+        drivetrain.drive_for_blind(580, -150, 50)
+        
+        # Pick up blocks
+        block_manipulation_system.set_and_update_state(BlockManipulationSystem.State.INTAKING)
+        wait(100, MSEC)  # Simulate time taken to intake blocks
+        drivetrain.drive_for_blind(630, 0, 10)
+        wait(2000, MSEC)  # Wait for capture system
+        block_manipulation_system.set_and_update_state(BlockManipulationSystem.State.IDLE)
 
-            # for _ in range(3):
-            #     block_manipulation_system.set_and_update_state(BlockManipulationSystemState.OUTPUTTING_LOW)
-            #     wait(1000, MSEC)
-            #     block_manipulation_system.set_and_update_state(BlockManipulationSystemState.IDLE)
+        # Reorient towards goal
+        drivetrain.turn_for(45, 50)
+        drivetrain.drive_for_blind(240, 0, 50)
+        # drivetrain.drive_for_blind(0, 100, 50)
 
-            #     wait(500, MSEC)
-                
-            #     drivetrain.drive_for_blind(-100, 0, 100)
-            #     for _ in range(3):
-            #         # Shake
-            #         drivetrain.drive_for_blind(50, 0, 100)
-            #         drivetrain.drive_for_blind(-50, 0, 100)
+        # Score blocks
+        block_manipulation_system.set_and_update_state(BlockManipulationSystem.State.OUTPUTTING_MEDIUM)
+        wait(5000, MSEC)  # Simulate time taken to output blocks
+        block_manipulation_system.set_and_update_state(BlockManipulationSystem.State.IDLE)
 
-            #     wait(100, MSEC)
-            #     drivetrain.drive_for_blind(100, 0, 100)
+class DriverControl:
+    running = False
+    _last_input_log_time = 0
 
+    @classmethod
+    def start(cls):
+        """Start driver control mode code. This function should not return."""
+        logger.info("=== DRIVER CONTROL MODE STARTED ===", ScreenTarget.BOTH)
+
+        # Register callbacks for buttons
+        cls._register_button_callbacks()
+
+        # Start main driver control loop
+        cls.running = True
+
+        try:
+            drivetrain.set_stopping_mode(RobotState.current_braking_mode)
+
+            while cls.running:
+                cls._update_drivetrain()
+                cls._update_block_manipulation_systems_state()
+                wait(20, MSEC) # Run the loop every 20 milliseconds (50 times per second)
+
+        except Exception as e:
+            logger.critical("Driver control crashed: " + str(e))
+            logger.critical("Robot stopped for safety", ScreenTarget.BOTH)
+            logger.error("Restarting driver control mode...", ScreenTarget.BOTH)
+            cls.start()  # Restart driver control mode
+
+    @classmethod
+    def _register_button_callbacks(cls):
+        """Register button callbacks for driver control mode"""
+        
+        # Configuration
+        controller.get_button(ControllerSettings.COLOR_SWITCH_BUTTON).pressed(cls.switch_alliance_color)
+
+        # Driving
+        controller.get_button(ControllerSettings.BRAKING_SWITCH_BUTTON).pressed(cls.switch_braking_mode) 
+        controller.get_button(ControllerSettings.FC_FORWARD_BUTTON).pressed(lambda: drivetrain.drive_for_blind(100, 0))
+        controller.get_button(ControllerSettings.FC_BACKWARD_BUTTON).pressed(lambda: drivetrain.drive_for_blind(-100, 0))
+        
+        # Features
+        controller.get_button(ControllerSettings.DESCORER_TRIGGER_BUTTON).pressed(cls.trigger_descorer)
+        controller.get_button(ControllerSettings.MATCH_LOAD_UNLOADER_TOGGLE_BUTTON).pressed(cls.toggle_match_load_unloader)
+
+    @classmethod
+    def _update_drivetrain(cls):
+        """To be called repeatedly in driver control mode to update the drivetrain"""
+
+        if drivetrain.movement_override:
+            return  # Skip manual control if movement override is active
+        
+        # Get joystick values with deadzone applied
+        forward = controller.get_axis_with_deadzone(ControllerSettings.FORWARD_BACKWARD_AXIS)
+        turn = controller.get_axis_with_deadzone(ControllerSettings.TURN_AXIS)
+        strafe = controller.get_button(ControllerSettings.STRAFE_RIGHT_BUTTON).pressing() * 100 - \
+                controller.get_button(ControllerSettings.STRAFE_LEFT_BUTTON).pressing() * 100  
+
+        # Log significant inputs occasionally (not every loop to avoid spam)
+        current_time = brain.timer.time()
+        if (abs(forward) > 50 or abs(strafe) > 50 or abs(turn) > 50) and \
+        (current_time - cls._last_input_log_time > 2000):  # Log every 2 seconds max
+            debug_msg = "Driver input: F:" + str(int(forward)) + " S:" + str(int(strafe)) + " T:" + str(int(turn))
+            logger.debug(debug_msg, ScreenTarget.BRAIN)
+            cls._last_input_log_time = current_time
+
+        # Apply speed modifiers
+        forward *= DrivetrainSettings.FORWARD_BACKWARD_SPEED_MODIFIER
+        strafe *= DrivetrainSettings.STRAFE_SPEED_MODIFIER
+        turn *= DrivetrainSettings.TURN_SPEED_MODIFIER
+
+        # Command the drivetrain to move
+        try:
+            drivetrain.drive(forward, strafe, turn)
+        except Exception as e:
+            logger.error("Drivetrain command failed: " + str(e))
+
+    @staticmethod
+    def _update_block_manipulation_systems_state():
+        """To be called repeatedly in driver control mode to update the block manipulation systems"""
+        if controller.get_button(ControllerSettings.INTAKE_BUTTON).pressing(): # Intake
+            block_manipulation_system.set_state(BlockManipulationSystem.State.INTAKING)
+        elif controller.get_button(ControllerSettings.OUTPUT_LOW_BUTTON).pressing(): # Output low
+            block_manipulation_system.set_state(BlockManipulationSystem.State.OUTPUTTING_LOW)
+        elif controller.get_button(ControllerSettings.OUTPUT_MEDIUM_BUTTON).pressing(): # Output medium
+            block_manipulation_system.set_state(BlockManipulationSystem.State.OUTPUTTING_MEDIUM)
+        elif controller.get_button(ControllerSettings.OUTPUT_HIGH_BUTTON).pressing(): # Output high
+            block_manipulation_system.set_state(BlockManipulationSystem.State.OUTPUTTING_HIGH)
         else:
-            # Left side
+            block_manipulation_system.set_state(BlockManipulationSystem.State.IDLE)
 
-            # Move to blocks
-            drivetrain.drive_for_blind(580, -150, 50)
-            
-            # Pick up blocks
-            block_manipulation_system.set_and_update_state(BlockManipulationSystemState.INTAKING)
-            wait(100, MSEC)  # Simulate time taken to intake blocks
-            drivetrain.drive_for_blind(630, 0, 10)
-            wait(2000, MSEC)  # Wait for capture system
-            block_manipulation_system.set_and_update_state(BlockManipulationSystemState.IDLE)
+        block_manipulation_system.update()
 
-            # Reorient towards goal
-            drivetrain.turn_for(45, 50)
-            drivetrain.drive_for_blind(240, 0, 50)
-            # drivetrain.drive_for_blind(0, 100, 50)
+    @staticmethod
+    def change_starting_side(value):
+        """Change the starting side of the robot"""
+        RobotState.starting_side.set(value)
+        logger.info("Starting side set to " + str(RobotState.starting_side), ScreenTarget.BRAIN)
+        logger.info("Starting side: " + str(RobotState.starting_side), ScreenTarget.CONTROLLER)
 
-            # Score blocks
-            block_manipulation_system.set_and_update_state(BlockManipulationSystemState.OUTPUTTING_MEDIUM)
-            wait(5000, MSEC)  # Simulate time taken to output blocks
-            block_manipulation_system.set_and_update_state(BlockManipulationSystemState.IDLE)
+    @staticmethod
+    def switch_alliance_color():
+        """Switch the current alliance color"""
+        LONG_PRESS_THRESHOLD_MS = 1000  # 1 second threshold for long press
 
-        RobotState.current_alliance_color = current_aliance_color  # Restore alliance color
+        # Define color if not defined already
+        if RobotState.current_alliance_color == AllianceColor("unknown"):
+            RobotState.current_alliance_color.set_to_default()
+        
+        # Toggle Color
+        RobotState.current_alliance_color = ~RobotState.current_alliance_color
+
+        logger.info("Alliance color switched to " + str(RobotState.current_alliance_color), ScreenTarget.BRAIN)
+        logger.info(str(RobotState.current_alliance_color) + " alliance selected", ScreenTarget.CONTROLLER)
+
+        # =============================== LONG PRESS FUNCTIONALITY ========================================
+        init_time = brain.timer.time()
+        while controller.get_button(ControllerSettings.COLOR_SWITCH_BUTTON).pressing():
+            wait(10, MSEC)
+            if brain.timer.time() - init_time > LONG_PRESS_THRESHOLD_MS:  # Early exit for long press
+                break
+
+        if brain.timer.time() - init_time > LONG_PRESS_THRESHOLD_MS:  # Long press detected
+            RobotState.current_alliance_color = AllianceColor("unknown")
+            logger.warning("Alliance color switched to UNKNOWN; color detection disabled.", ScreenTarget.BRAIN)
+            logger.warning("Color detection disabled.", ScreenTarget.CONTROLLER)
+        
+    @staticmethod
+    def switch_braking_mode():
+        """Switch the drivetrain braking mode between BRAKE and COAST"""
+        if RobotState.current_braking_mode == BRAKE:
+            new_mode = COAST
+        else:
+            new_mode = BRAKE
+
+        RobotState.current_braking_mode = new_mode
+        drivetrain.set_stopping_mode(new_mode)
+
+        str_name = "BRAKE" if new_mode == BRAKE else "COAST"
+
+        logger.info("Drivetrain braking mode switched to " + str_name, ScreenTarget.BRAIN)
+        logger.info(str_name + " braking mode.", ScreenTarget.CONTROLLER)
+
+    @classmethod
+    def trigger_descorer(cls):
+        """Trigger the descorer solenoid in a separate thread."""
+        cls._TriggerDescorer()
+    class _TriggerDescorer:
+        def __init__(self):
+            """Trigger the descorer solenoid in a separate thread."""
+            Thread(self._trigger_descorer_thread)
+
+        def _trigger_descorer_thread(self):
+            """Trigger the descorer solenoid. This function is blocking, so it should be run in a separate thread."""
+            Solenoids.descorer_solenoid.open()
+            logger.debug("Descorer triggered", ScreenTarget.BOTH)
+            wait(500, MSEC)  # Keep descorer active for 500 milliseconds
+            Solenoids.descorer_solenoid.close()
+
+    @staticmethod
+    def toggle_match_load_unloader():
+        """Toggle the match load unloader motor"""
+        if Solenoids.match_load_unloader_solenoid.value():
+            Solenoids.match_load_unloader_solenoid.close()
+            logger.info("Match load unloader retracted", ScreenTarget.BOTH)
+        else:
+            Solenoids.match_load_unloader_solenoid.open()
+            logger.info("Match load unloader deployed", ScreenTarget.BOTH)
 
 
-        logger.info("Autonomous routine completed successfully")
-
-    except Exception as e:
-        logger.error("Autonomous routine failed: " + str(e))
-        logger.error("Emergency stop activated", ScreenTarget.BOTH)
-    logger.info("=== AUTONOMOUS MODE ENDED ===", ScreenTarget.BOTH)
-
-# Track last significant input for logging
-last_input_log_time = 0
-
-# ======================== DRIVER CONTROL MODE ========================
-
-def driver_control_entrypoint():
-    """Executed once upon entering driver control mode"""
-    logger.info("=== DRIVER CONTROL MODE STARTED ===", ScreenTarget.BOTH)
-
-    # Register callbacks for buttons
-    controller.get_button(ControllerSettings.BRAKING_SWITCH_BUTTON).pressed(switch_braking_mode) 
-
-    controller.get_button(ControllerSettings.FC_FORWARD_BUTTON).pressed(lambda: drivetrain.drive_for_blind(100, 0))
-    controller.get_button(ControllerSettings.FC_BACKWARD_BUTTON).pressed(lambda: drivetrain.drive_for_blind(-100, 0))
-    controller.get_button(ControllerSettings.DESCORER_TRIGGER_BUTTON).pressed(trigger_descorer)
-    controller.get_button(ControllerSettings.MATCH_LOAD_UNLOADER_TOGGLE_BUTTON).pressed(toggle_match_load_unloader)
-
-    try:
-        drivetrain.set_stopping_mode(RobotState.current_braking_mode)
-
-        while True:
-            update_drivetrain()
-            update_block_manipulation_systems_state()
-            wait(20, MSEC) # Run the loop every 20 milliseconds (50 times per second)
-    except Exception as e:
-        logger.critical("Driver control crashed: " + str(e))
-        logger.critical("Robot stopped for safety", ScreenTarget.BOTH)
-        logger.error("Restarting driver control mode...", ScreenTarget.BOTH)
-        driver_control_entrypoint()  # Restart driver control mode
-
-def update_drivetrain():
-    """To be called repeatedly in driver control mode to update the drivetrain"""
-    global last_input_log_time
-
-    if drivetrain.movement_override:
-        return  # Skip manual control if movement override is active
-    
-    # Get joystick values with deadzone applied
-    forward = controller.get_axis_with_deadzone(ControllerSettings.FORWARD_BACKWARD_AXIS)
-    turn = controller.get_axis_with_deadzone(ControllerSettings.TURN_AXIS)
-    strafe = controller.get_button(ControllerSettings.STRAFE_RIGHT_BUTTON).pressing() * 100 - \
-             controller.get_button(ControllerSettings.STRAFE_LEFT_BUTTON).pressing() * 100  
-
-    # Log significant inputs occasionally (not every loop to avoid spam)
-    current_time = brain.timer.time()
-    if (abs(forward) > 50 or abs(strafe) > 50 or abs(turn) > 50) and \
-       (current_time - last_input_log_time > 2000):  # Log every 2 seconds max
-        debug_msg = "Driver input: F:" + str(int(forward)) + " S:" + str(int(strafe)) + " T:" + str(int(turn))
-        logger.debug(debug_msg, ScreenTarget.BRAIN)
-        last_input_log_time = current_time
-
-    # Apply speed modifiers
-    forward *= DrivetrainSettings.FORWARD_BACKWARD_SPEED_MODIFIER
-    strafe *= DrivetrainSettings.STRAFE_SPEED_MODIFIER
-    turn *= DrivetrainSettings.TURN_SPEED_MODIFIER
-
-    # Command the drivetrain to move
-    try:
-        drivetrain.drive(forward, strafe, turn)
-    except Exception as e:
-        logger.error("Drivetrain command failed: " + str(e))
-
-def update_block_manipulation_systems_state():
-    """To be called repeatedly in driver control mode to update the block manipulation systems"""
-    if controller.get_button(ControllerSettings.INTAKE_BUTTON).pressing(): # Intake
-        block_manipulation_system.set_state(BlockManipulationSystemState.INTAKING)
-    elif controller.get_button(ControllerSettings.OUTPUT_LOW_BUTTON).pressing(): # Output low
-        block_manipulation_system.set_state(BlockManipulationSystemState.OUTPUTTING_LOW)
-    elif controller.get_button(ControllerSettings.OUTPUT_MEDIUM_BUTTON).pressing(): # Output medium
-        block_manipulation_system.set_state(BlockManipulationSystemState.OUTPUTTING_MEDIUM)
-    elif controller.get_button(ControllerSettings.OUTPUT_HIGH_BUTTON).pressing(): # Output high
-        block_manipulation_system.set_state(BlockManipulationSystemState.OUTPUTTING_HIGH)
-    else:
-        block_manipulation_system.set_state(BlockManipulationSystemState.IDLE)
-
-    block_manipulation_system.update()
-
-def change_starting_side(value):
-    """Change the starting side of the robot"""
-    RobotState.starting_side.set(value)
-    logger.info("Starting side set to " + str(RobotState.starting_side), ScreenTarget.BRAIN)
-    logger.info("Starting side: " + str(RobotState.starting_side), ScreenTarget.CONTROLLER)
-
-def switch_alliance_color():
-    """Switch the current alliance color"""
-    LONG_PRESS_THRESHOLD_MS = 1000  # 1 second threshold for long press
-
-    # Define color if not defined already
-    if RobotState.current_alliance_color == AllianceColor("unknown"):
-        RobotState.current_alliance_color.set_to_default()
-    
-    # Toggle Color
-    RobotState.current_alliance_color = ~RobotState.current_alliance_color
-
-    logger.info("Alliance color switched to " + str(RobotState.current_alliance_color), ScreenTarget.BRAIN)
-    logger.info(str(RobotState.current_alliance_color) + " alliance selected", ScreenTarget.CONTROLLER)
-
-    # =============================== LONG PRESS FUNCTIONALITY ========================================
-    init_time = brain.timer.time()
-    while controller.get_button(ControllerSettings.COLOR_SWITCH_BUTTON).pressing():
-        wait(10, MSEC)
-        if brain.timer.time() - init_time > LONG_PRESS_THRESHOLD_MS:  # Early exit for long press
-            break
-
-    if brain.timer.time() - init_time > LONG_PRESS_THRESHOLD_MS:  # Long press detected
-        RobotState.current_alliance_color = AllianceColor("unknown")
-        logger.warning("Alliance color switched to UNKNOWN; color detection disabled.", ScreenTarget.BRAIN)
-        logger.warning("Color detection disabled.", ScreenTarget.CONTROLLER)
-    
-def switch_braking_mode():
-    """Switch the drivetrain braking mode between BRAKE and COAST"""
-    if RobotState.current_braking_mode == BRAKE:
-        new_mode = COAST
-    else:
-        new_mode = BRAKE
-
-    RobotState.current_braking_mode = new_mode
-    drivetrain.set_stopping_mode(new_mode)
-
-    str_name = "BRAKE" if new_mode == BRAKE else "COAST"
-
-    logger.info("Drivetrain braking mode switched to " + str_name, ScreenTarget.BRAIN)
-    logger.info(str_name + " braking mode.", ScreenTarget.CONTROLLER)
-
-def __trigger_descorer_thread():
-    """Trigger the descorer solenoid. This function is blocking, so it should be run in a separate thread."""
-    Solenoids.descorer_solenoid.open()
-    logger.debug("Descorer triggered", ScreenTarget.BOTH)
-    wait(500, MSEC)  # Keep descorer active for 500 milliseconds
-    Solenoids.descorer_solenoid.close()
-
-def trigger_descorer():
-    """Trigger the descorer solenoid in a separate thread."""
-    Thread(__trigger_descorer_thread)
-
-def toggle_match_load_unloader():
-    """Toggle the match load unloader motor"""
-    if Solenoids.match_load_unloader_solenoid.value():
-        Solenoids.match_load_unloader_solenoid.close()
-        logger.info("Match load unloader retracted", ScreenTarget.BOTH)
-    else:
-        Solenoids.match_load_unloader_solenoid.open()
-        logger.info("Match load unloader deployed", ScreenTarget.BOTH)
 
 # =============================================================================
-# MAIN PROGRAM
+# PROGRAM STARTUP
 # =============================================================================
 
 # Initialize logger after all components are set up
@@ -970,10 +992,6 @@ battery_current = str(round(brain.battery.current(), 1))
 logger.info("Battery: " + battery_voltage + "V " + battery_current + "A")
 
 # Create competition instance
-comp = Competition(driver_control_entrypoint, autonomous_entrypoint)
+comp = Competition(DriverControl.start, Autonomous.start)
 
-# Start pre-auton
-pre_auton_setup()
-
-# Actions to do when the program starts
 logger.info("Robot initialized and ready", ScreenTarget.BOTH)
