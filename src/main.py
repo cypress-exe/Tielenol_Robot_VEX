@@ -11,6 +11,18 @@
 from vex import *
 
 # ============================================================================
+# PYTHON BUILT-IN FUNCTIONS THAT AREN'T BUILT IN TO VEX PYTHON
+# ============================================================================
+def enumerate(iterable, start=0):
+    """Custom implementation of enumerate for VEX Python"""
+    index = start
+    for item in iterable:
+        yield index, item
+        index += 1
+
+
+
+# ============================================================================
 # TYPES
 # ============================================================================
 class AllianceColor:
@@ -217,6 +229,8 @@ class Logger:
             self.brain.screen.print(segment)
             self.brain.screen.new_line()
             self.brain_line += 1
+
+        self.brain.screen.render()  # Update the brain screen
 
     def _log_to_controller(self, message: str):
         """Log message to controller screen (single line, overwrites)"""
@@ -1006,12 +1020,18 @@ class DriverControl:
 
 class ConfigurationScreen:
     """Dynamic tabbed configuration screen for pre-autonomous setup"""
+
+    # There are two units involved here. There's pixels and there's the brain's cell grid.
+    # The brain screen is 48 cells wide and 12 cells tall. Each cell is 10x20 pixels.
+    # Thus, the brain screen is 479 pixels wide and 239 pixels tall (with 1 pixel border).
     
     # Screen dimensions
     SCREEN_WIDTH = 480
-    SCREEN_HEIGHT = 272
-    TAB_HEIGHT = 40
-    DONE_BUTTON_HEIGHT = 50
+    SCREEN_HEIGHT = 240
+    PIXELS_PER_CELL_WIDTH = 10
+    PIXELS_PER_CELL_HEIGHT = 20
+    TAB_HEIGHT = 30
+    DONE_BUTTON_HEIGHT = 30
     
     # Components
     class Label:
@@ -1034,9 +1054,8 @@ class ConfigurationScreen:
         def draw(self, brain_instance: Brain):
             """Draw the label on the brain screen"""
             brain_instance.screen.set_pen_color(self.color)
-            text_x, text_y = ConfigurationScreen._calculate_center_for_text(self.x, self.y, self.text)
-            brain_instance.screen.set_cursor(text_y // 10 + 2, text_x // 10 - len(self.text) // 2)
-            brain_instance.screen.print(self.text)
+            text_x, text_y = ConfigurationScreen._calculate_center_for_text(brain_instance, self.x, self.y, self.text)
+            brain_instance.screen.print_at(self.text, x=text_x, y=text_y)
 
     class Button:
         def __init__(self, parent: ConfigurationScreen, tab_name, label, x, y, width, height, fill_color=Color.BLACK, pen_color=Color.WHITE):
@@ -1111,9 +1130,8 @@ class ConfigurationScreen:
                 text_color = Color.WHITE if fill_color != Color.WHITE else Color.BLACK
                 brain_instance.screen.set_pen_color(text_color)
                 center_x, center_y = ConfigurationScreen._calculate_center_for_rect(self.x, self.y, self.width, self.height)
-                text_x, text_y = ConfigurationScreen._calculate_center_for_text(center_x, center_y, label)
-                brain_instance.screen.set_cursor(text_y // 10 + 2, text_x // 10 - len(label) // 2)
-                brain_instance.screen.print(label)
+                text_x, text_y = ConfigurationScreen._calculate_center_for_text(brain_instance, center_x, center_y, label)
+                brain_instance.screen.print_at(label, x=text_x, y=text_y)
     
         def set_callback(self, callback, render_callback):
             """
@@ -1137,48 +1155,50 @@ class ConfigurationScreen:
     # Tab Classes. Must implement:
     # - __init__(parent: ConfigurationScreen) method.
     # - draw(brain_instance: Brain) method.
+    # - self.name attribute.
     class MainSettingsTab:
         """Tab for main robot settings (starting side and alliance color)"""
         def __init__(self, parent: ConfigurationScreen):
             self.parent = parent
             self.name = "Main Settings"
             
-            # Create labels
-            self.labels = [
-                ConfigurationScreen.Label("Starting Side", parent.SCREEN_WIDTH // 2, parent.TAB_HEIGHT + 10),
-                ConfigurationScreen.Label("Alliance Color", parent.SCREEN_WIDTH // 2, parent.TAB_HEIGHT + 120)
-            ]
+
+            margin = 10
+            buttons_width = (parent.SCREEN_WIDTH - (2 * margin)) // 2 - margin # 220
+            buttons_height = (parent.SCREEN_HEIGHT - parent.TAB_HEIGHT - parent.DONE_BUTTON_HEIGHT - (2 * margin)) // 2 - margin  # 70
             
             # Create buttons
-            self.left_button = ConfigurationScreen.Button(
-                parent, self.name, "LEFT", 10, parent.TAB_HEIGHT + 30,
-                (parent.SCREEN_WIDTH - 30) // 2, 70, Color.BLACK, Color.WHITE
+            row_top = parent.TAB_HEIGHT
+            
+            self.left_button = ConfigurationScreen.Button( # 10/480 - 230/480, 40/240 - 110/240
+                parent, self.name, "LEFT", margin, row_top + margin,
+                buttons_width, buttons_height, Color.BLACK, Color.WHITE
             )
             self.left_button.set_callback(lambda: RobotState.starting_side.set("LEFT"), parent.render)
             
-            self.right_button = ConfigurationScreen.Button(
-                parent, self.name, "RIGHT", 20 + (parent.SCREEN_WIDTH - 30) // 2, parent.TAB_HEIGHT + 30,
-                (parent.SCREEN_WIDTH - 30) // 2, 70, Color.BLACK, Color.WHITE
+            self.right_button = ConfigurationScreen.Button( # 250/480 - 470/480, 40/240 - 110/240, width: 220, height: 70
+                parent, self.name, "RIGHT", parent.SCREEN_WIDTH - margin - buttons_width, row_top + margin,
+                buttons_width, buttons_height, Color.BLACK, Color.WHITE
             )
             self.right_button.set_callback(lambda: RobotState.starting_side.set("RIGHT"), parent.render)
+
+            # Next row
+            row_top = parent.TAB_HEIGHT + margin + buttons_height + margin
             
-            self.blue_button = ConfigurationScreen.Button(
-                parent, self.name, "BLUE", 10, parent.TAB_HEIGHT + 140,
-                (parent.SCREEN_WIDTH - 30) // 2, 70, Color.BLACK, Color.WHITE
-            )
+            self.blue_button = ConfigurationScreen.Button( # 10/480 - 230/480, 140/240 - 220/240
+                parent, self.name, "BLUE", margin, row_top + margin,
+                buttons_width, buttons_height, Color.BLACK, Color.WHITE
+                )
             self.blue_button.set_callback(lambda: RobotState.current_alliance_color.set("BLUE"), parent.render)
             
-            self.red_button = ConfigurationScreen.Button(
-                parent, self.name, "RED", 20 + (parent.SCREEN_WIDTH - 30) // 2, parent.TAB_HEIGHT + 140,
-                (parent.SCREEN_WIDTH - 30) // 2, 70, Color.BLACK, Color.WHITE
+            self.red_button = ConfigurationScreen.Button( # 250/480 - 470/480, 140/240 - 220/240
+                parent, self.name, "RED", parent.SCREEN_WIDTH - margin - buttons_width, row_top + margin,
+                buttons_width, buttons_height, Color.BLACK, Color.WHITE
             )
             self.red_button.set_callback(lambda: RobotState.current_alliance_color.set("RED"), parent.render)
         
         def draw(self, brain_instance: Brain):
             """Draw the tab content with current state"""
-            # Draw labels
-            for label in self.labels:
-                label.draw(brain_instance)
             
             # Draw buttons with state-dependent colors
             left_color = Color.GREEN if RobotState.starting_side == "LEFT" else Color.TRANSPARENT
@@ -1248,7 +1268,7 @@ class ConfigurationScreen:
         """Initialize global buttons (Done button)"""
         done_button = self.Button(
             self, "GLOBAL", "DONE", (self.SCREEN_WIDTH - 200) // 2,
-            self.SCREEN_HEIGHT - self.DONE_BUTTON_HEIGHT - 5,
+            self.SCREEN_HEIGHT - self.DONE_BUTTON_HEIGHT,
             200, self.DONE_BUTTON_HEIGHT, Color.PURPLE, Color.WHITE
         )
         done_button.set_callback(lambda: setattr(self, 'thread_running', False), self.render)
@@ -1281,6 +1301,9 @@ class ConfigurationScreen:
 
     def render(self):
         """Render the entire configuration screen"""
+        if self.thread_running is False:
+            return
+        
         self.brain.screen.clear_screen()
         
         # Draw tab buttons with state-dependent colors
@@ -1301,6 +1324,8 @@ class ConfigurationScreen:
                 button.draw(self.brain)
 
         self.time_since_last_render = self.brain.timer.time(SECONDS)
+
+        self.brain.screen.render() # Render screen
     
     def _should_exit(self):
         """Check if we should exit the configuration screen"""
@@ -1367,11 +1392,13 @@ class ConfigurationScreen:
         return center_x, center_y
 
     @staticmethod
-    def _calculate_center_for_text(x, y, text):
-        """Calculate the center position for text at a point"""
-        text_length = len(text)
-        text_x = x  - (text_length * 3)  # Approximate character width of 6 pixels
-        text_y = y - 7  # Approximate character height of 14 pixels
+    def _calculate_center_for_text(brain_instance: Brain, x, y, text):
+        """Calculate the top-left position for text centered at a point. Returns coordinates for print_at (in pixels)."""
+        text_width = brain_instance.screen.get_string_width(text)
+        text_height = brain_instance.screen.get_string_height(text)
+        text_x = x - (text_width // 2)
+        # print_at positions from top of text, so we need to adjust for vertical centering
+        text_y = y + (text_height // 2)
         return text_x, text_y
 
 
