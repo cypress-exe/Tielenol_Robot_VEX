@@ -1096,13 +1096,10 @@ class ConfigurationScreen:
             pen_color = self.pen_color
             label = self.label
 
-            for kwarg in kwargs:
-                if kwarg == "fill_color":
-                    fill_color = kwargs[kwarg]
-                elif kwarg == "pen_color":
-                    pen_color = kwargs[kwarg]
-                elif kwarg == "label":
-                    label = kwargs[kwarg]                
+            # Override colors and label if provided in kwargs
+            fill_color = kwargs.get("fill_color", fill_color)
+            pen_color = kwargs.get("pen_color", pen_color)
+            label = kwargs.get("label", label)           
 
             # Draw Rectangle
             brain_instance.screen.set_fill_color(fill_color)
@@ -1324,35 +1321,37 @@ class ConfigurationScreen:
     
     def _run_thread(self):
         """Main thread function for the configuration screen"""
-        # Disable brain logging while config screen is active
-        self.logger.brain_logging_enabled = False
+        try:
+            # Disable brain logging while config screen is active
+            self.logger.brain_logging_enabled = False
 
-        # Draw initial screen
-        self.render()
-        
-        # Log to controller only
-        self.logger.info("Configuration screen active", ScreenTarget.CONTROLLER)
-        
-        # Keep the screen interactive
-        while self.thread_running:
-            if self._should_exit():
-                break
+            # Draw initial screen
+            self.render()
             
-            wait(50, MSEC)
-        
-        # Re-enable brain logging
-        self.logger.brain_logging_enabled = True
-        self.logger.brain_line = 1
+            # Log to controller only
+            self.logger.info("Configuration screen active", ScreenTarget.CONTROLLER)
+            
+            # Keep the screen interactive
+            while self.thread_running:
+                if self._should_exit():
+                    break
+                
+                wait(50, MSEC)
 
-        # Reset text styles
-        self.brain.screen.set_cursor(0, 0)
-        self.brain.screen.set_fill_color(Color.TRANSPARENT)
+        finally:
+            # Re-enable brain logging
+            self.logger.brain_logging_enabled = True
+            self.logger.brain_line = 1
 
-        # Clear screen and log final settings
-        self.brain.screen.clear_screen()
-        self.logger.info("Config complete - Side: " + str(RobotState.starting_side) + " Color: " + str(RobotState.current_alliance_color))
-        
-        self.thread_running = False
+            # Reset text styles
+            self.brain.screen.set_cursor(0, 0)
+            self.brain.screen.set_fill_color(Color.TRANSPARENT)
+
+            # Clear screen and log final settings
+            self.brain.screen.clear_screen()
+            self.logger.info("Config complete - Side: " + str(RobotState.starting_side) + " Color: " + str(RobotState.current_alliance_color))
+            
+            self.thread_running = False
     
     def run(self):
         """Run the configuration screen in a separate thread"""
