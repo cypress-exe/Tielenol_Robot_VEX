@@ -1024,7 +1024,8 @@ class ConfigurationScreen:
     # There are two units involved here. There's pixels and there's the brain's cell grid.
     # The brain screen is 48 cells wide and 12 cells tall. Each cell is 10x20 pixels.
     # Thus, the brain screen is 479 pixels wide and 239 pixels tall (with 1 pixel border).
-    
+    # Docs: https://api.vex.com/v5/home/python/Screen.html
+
     # Screen dimensions
     SCREEN_WIDTH = 480
     SCREEN_HEIGHT = 240
