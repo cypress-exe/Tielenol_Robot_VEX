@@ -15,6 +15,12 @@ from vex import *
 # ============================================================================
 class AllianceColor:
     def __init__(self, color_name: str = "UNKNOWN"):
+        self.set(color_name)
+        
+    def set_to_default(self):
+        self.__color_name = "RED"
+
+    def set(self, color_name: str):
         if isinstance(color_name, str):
             if color_name.upper() in ['RED', 'BLUE', 'UNKNOWN']:
                 self.__color_name = color_name.upper()
@@ -24,9 +30,6 @@ class AllianceColor:
             self.__color_name = color_name.color_name
         else:
             raise TypeError("Color name must be a string.")
-        
-    def set_to_default(self):
-        self.__color_name = "RED"
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, AllianceColor):
@@ -194,6 +197,9 @@ class Logger:
 
     def _log_to_brain(self, message: str):
         """Log message to brain screen with wrapping"""
+        if not self.brain_logging_enabled:
+            return
+
         # Split message into sections of 48 characters
         segments = []
         while len(message) > 48:
@@ -201,9 +207,6 @@ class Logger:
             message = message[48:]
         if message:
             segments.append(message)
-
-        if not self.brain_logging_enabled:
-            return
 
         if self.brain_line > self.max_brain_lines:
             self.brain_line = 1
@@ -576,7 +579,7 @@ class Motors:
 class Solenoids:
     intake_solenoid = Pneumatics(brain.three_wire_port.h)
     descorer_solenoid = Pneumatics(brain.three_wire_port.f)
-    match_load_unloader_solenoid = Pneumatics(brain.three_wire_port.d)
+    match_load_unloader_solenoid = Pneumatics(brain.three_wire_port.c)
 
 class Sensors:
     inertia_sensor = Inertial(Ports.PORT18)
@@ -599,7 +602,6 @@ class Sensors:
         cls.inertia_sensor.calibrate()
         logger.info("Inertial sensor calibration complete.")
 
-Sensors.initialize_sensors()
 
 # Create logger instance (requires brain and controller to be initialized)
 logger = Logger(brain, controller)
@@ -607,7 +609,7 @@ logger = Logger(brain, controller)
 # Drivetrain instance using motor groups
 drivetrain = Drivetrain(Motors.left_motor_group, Motors.right_motor_group, Motors.strafe_motor, Sensors.inertia_sensor)
 
-
+Sensors.initialize_sensors()
 
 # =============================================================================
 # BLOCK MANIPULATION SYSTEMS
@@ -1004,337 +1006,344 @@ class DriverControl:
 
 class ConfigurationScreen:
     """Dynamic tabbed configuration screen for pre-autonomous setup"""
-
-    TABS = []
     
     # Screen dimensions
     SCREEN_WIDTH = 480
     SCREEN_HEIGHT = 272
     TAB_HEIGHT = 40
     DONE_BUTTON_HEIGHT = 50
+
+    buttons: dict[str, list[ConfigurationScreen.Button]] = {}
+
     
-    def __init__(self, brain_instance: Brain, logger_instance, competition_instance):
+    
+    def __init__(self, brain_instance: Brain, logger_instance: Logger, competition_instance):
         self.brain = brain_instance
         self.logger = logger_instance
         self.comp = competition_instance
         
-        self.current_tab = 0
-        self.selection_complete = False
-        self.last_touch_time = 0
+        self.current_tab = "Main Settings"
         self.thread_running = True
+        self.time_since_last_render = None
         
         # Store previous alliance color for toggle feature
         self.previous_alliance_color = RobotState.current_alliance_color
         
         # Set tabs
-        self.TABS.append({"name": "Main Settings", "draw_func": self._draw_main_settings_tab})
-        self.TABS.append({"name": "Other Configs", "draw_func": self._draw_other_configs_tab})
+        self.tabs = [
+            {"name": "Main Settings", "draw_func": self._draw_main_settings_tab},
+            {"name": "Other Configs", "draw_func": self._draw_other_configs_tab}
+        ]
+
+        # Set up touch callback
+        brain_instance.screen.pressed(self._touch_callback)
+
+    class Button:
+        def __init__(self, tab, label, x, y, width, height, fill_color=Color.BLACK, pen_color=Color.WHITE):
+            """
+            Initialize a button with position and dimensions
+            
+            Args:
+                tab: Tab identifier (e.g., tab name)
+                label: Text label of the button
+                x: X coordinate of the button
+                y: Y coordinate of the button
+                width: Width of the button
+                height: Height of the button
+                fill_color: Fill color of the button (default: Color.BLACK)
+                pen_color: Pen color for the button border (default: Color.WHITE)
+            """
+
+            self.tab = tab
+            self.label = label
+            self.x = x
+            self.y = y
+            self.width = width
+            self.height = height
+            self.fill_color = fill_color
+            self.pen_color = pen_color
+
+            self.callback = None
+            self.render_callback = None
+            
+            # Add button to the global button list
+            if tab not in ConfigurationScreen.buttons:
+                ConfigurationScreen.buttons[tab] = []
+
+            ConfigurationScreen.buttons[tab].append(self)
+
+        def __del__(self):
+            """Remove button from the global button list upon deletion"""
+            if self.tab in ConfigurationScreen.buttons:
+                ConfigurationScreen.buttons[self.tab].remove(self)
+
+        def is_pressed(self, touch_x, touch_y):
+            """
+            Check if the button is pressed based on touch coordinates
+
+            Args:
+                touch_x: X coordinate of the touch
+                touch_y: Y coordinate of the touch
+            """
+            return (self.x <= touch_x <= self.x + self.width) and (self.y <= touch_y <= self.y + self.height)
+        
+        def draw(self, brain_instance: Brain, **kwargs):
+            """
+            Draw the button on the brain screen with specified colors and label
+
+            Args:
+                brain_instance: Brain instance to draw on
+                **kwargs: Optional keyword arguments for fill_color, pen_color, and label
+            """
+            
+            fill_color = self.fill_color
+            pen_color = self.pen_color
+            label = self.label
+
+            for kwarg in kwargs:
+                if kwarg == "fill_color":
+                    fill_color = kwargs[kwarg]
+                elif kwarg == "pen_color":
+                    pen_color = kwargs[kwarg]
+                elif kwarg == "label":
+                    label = kwargs[kwarg]                
+
+            # Draw Rectangle
+            brain_instance.screen.set_fill_color(fill_color)
+            brain_instance.screen.set_pen_color(pen_color)
+            brain_instance.screen.draw_rectangle(self.x, self.y, self.width, self.height)
+
+            # Add text
+            if label is not None:
+                text_color = Color.WHITE if fill_color != Color.WHITE else Color.BLACK
+                brain_instance.screen.set_pen_color(text_color)
+                center_x, center_y = ConfigurationScreen._calculate_center_for_rect(self.x, self.y, self.width, self.height)
+                text_x, text_y = ConfigurationScreen._calculate_center_for_text(center_x, center_y, label)
+                brain_instance.screen.set_cursor(text_y // 10 + 2, text_x // 10 - len(label) // 2)
+                brain_instance.screen.print(label)
     
+        def set_callback(self, callback, render_callback):
+            """
+            Set a callback function to be called when the button is pressed
+
+            Args:
+                callback: Function to call when the button is pressed
+                render_callback: Function to call to re-render the screen after callback. Set to None to skip re-rendering.
+            """
+            self.callback = callback
+            self.render_callback = render_callback
+            
+        def run_callback(self):
+            """Run the button's callback function if it exists"""
+            if self.callback is not None:
+                self.callback()
+            
+            if self.render_callback is not None:
+                self.render_callback()
+
+
+    def _touch_callback(self):
+        """Handle touch events on the screen"""
+        x = self.brain.screen.x_position()
+        y = self.brain.screen.y_position()
+
+        # Check if any button in the current tab is pressed
+        if self.current_tab in ConfigurationScreen.buttons:
+            for button in ConfigurationScreen.buttons[self.current_tab]:
+                if button.is_pressed(x, y):
+                    if hasattr(button, 'callback'):
+                        button.run_callback()
+
+        # Also check buttons in the "global" tab (e.g., Done button)
+        if "global" in ConfigurationScreen.buttons:
+            for button in ConfigurationScreen.buttons["global"]:
+                if button.is_pressed(x, y):
+                    if hasattr(button, 'callback'):
+                        button.run_callback()
+
     def _calculate_tab_dimensions(self):
         """Calculate tab button dimensions based on number of tabs"""
-        num_tabs = len(self.TABS)
+        num_tabs = len(self.tabs)
         tab_width = self.SCREEN_WIDTH // num_tabs
         return tab_width, self.TAB_HEIGHT
     
+    @staticmethod
+    def _calculate_center_for_rect(x, y, width, height):
+        """Calculate the center position of a rectangle"""
+        center_x = x + (width // 2)
+        center_y = y + (height // 2)
+        return center_x, center_y
+
+    @staticmethod
+    def _calculate_center_for_text(x, y, text):
+        """Calculate the center position for text at a point"""
+        text_length = len(text)
+        text_x = x  - (text_length * 3)  # Approximate character width of 6 pixels
+        text_y = y - 7  # Approximate character height of 14 pixels
+        return text_x, text_y
+
     def _draw_tabs(self):
         """Draw the tab bar at the top"""
         tab_width, tab_height = self._calculate_tab_dimensions()
-        
-        for i, tab in enumerate(self.TABS):
-            x = i * tab_width
-            
-            # Set color based on whether this is the active tab
-            if i == self.current_tab:
-                self.brain.screen.set_fill_color(Color.WHITE)
-                self.brain.screen.set_pen_color(Color.BLACK)
-            else:
-                self.brain.screen.set_fill_color(Color.BLACK)
-                self.brain.screen.set_pen_color(Color.WHITE)
-            
-            # Draw tab rectangle
-            self.brain.screen.draw_rectangle(x, 0, tab_width, tab_height)
-            
-            # Draw tab name (center it)
-            # Calculate approximate column position
-            text_col = (x + tab_width // 2) // 10 - len(tab["name"]) // 2
-            self.brain.screen.set_cursor(2, max(1, text_col))
-            self.brain.screen.print(tab["name"])
-    
+
+        for tab in self.tabs:
+            index = self.tabs.index(tab)
+
+            x = index * tab_width
+
+            fill_color = Color.WHITE if tab["name"] == self.current_tab else Color.BLACK
+
+            button = self.Button(tab=tab["name"], label=tab["name"], x=x, y=0, width=tab_width, 
+                                 height=tab_height, fill_color=fill_color, pen_color=Color.WHITE)
+            button.draw(self.brain)
+            button.set_callback(lambda tab_name=tab["name"]: setattr(self, "current_tab", tab_name), self.render)
+
     def _draw_done_button(self):
         """Draw the Done button at the bottom of the screen"""
-        button_y = self.SCREEN_HEIGHT - self.DONE_BUTTON_HEIGHT - 5
-        button_width = 200
-        button_x = (self.SCREEN_WIDTH - button_width) // 2
-        
-        self.brain.screen.set_fill_color(Color.PURPLE)
-        self.brain.screen.set_pen_color(Color.WHITE)
-        self.brain.screen.draw_rectangle(button_x, button_y, button_width, self.DONE_BUTTON_HEIGHT)
-        self.brain.screen.set_cursor(30, 20)
-        self.brain.screen.print("DONE")
-    
-    def _draw_main_settings_tab(self):
-        """Draw the Main Settings tab content"""
-        content_y = self.TAB_HEIGHT + 10
-        button_height = 70
-        button_spacing = 10
-        button_width = (self.SCREEN_WIDTH - 30) // 2
-        
-        # Title
-        self.brain.screen.set_pen_color(Color.WHITE)
-        self.brain.screen.set_cursor(5, 15)
-        self.brain.screen.print("Starting Side")
-        
-        # Side selection buttons (top row)
-        # LEFT button
-        if RobotState.starting_side == "LEFT":
-            self.brain.screen.set_fill_color(Color.GREEN)
-        else:
-            self.brain.screen.set_fill_color(Color.TRANSPARENT)
-        self.brain.screen.draw_rectangle(10, content_y, button_width, button_height)
-        self.brain.screen.set_cursor(8, 8)
-        self.brain.screen.print("LEFT")
-        
-        # RIGHT button
-        if RobotState.starting_side == "RIGHT":
-            self.brain.screen.set_fill_color(Color.GREEN)
-        else:
-            self.brain.screen.set_fill_color(Color.TRANSPARENT)
-        self.brain.screen.draw_rectangle(10 + button_width + button_spacing, content_y, button_width, button_height)
-        self.brain.screen.set_cursor(8, 33)
-        self.brain.screen.print("RIGHT")
-        
-        # Alliance color title
-        content_y += button_height + button_spacing
-        self.brain.screen.set_cursor(11, 13)
-        self.brain.screen.print("Alliance Color")
-        
-        # Alliance color buttons (bottom row)
-        content_y += 20
-        
-        # BLUE button
-        if str(RobotState.current_alliance_color) == "BLUE":
-            self.brain.screen.set_fill_color(Color.BLUE)
-        else:
-            self.brain.screen.set_fill_color(Color.TRANSPARENT)
-        self.brain.screen.draw_rectangle(10, content_y, button_width, button_height)
-        self.brain.screen.set_cursor(14, 8)
-        self.brain.screen.print("BLUE")
-        
-        # RED button
-        if str(RobotState.current_alliance_color) == "RED":
-            self.brain.screen.set_fill_color(Color.RED)
-        else:
-            self.brain.screen.set_fill_color(Color.TRANSPARENT)
-        self.brain.screen.draw_rectangle(10 + button_width + button_spacing, content_y, button_width, button_height)
-        self.brain.screen.set_cursor(14, 34)
-        self.brain.screen.print("RED")
-    
-    def _draw_other_configs_tab(self):
-        """Draw the Other Configs tab content"""
-        content_y = self.TAB_HEIGHT + 10
-        button_height = 55
-        button_spacing = 10
-        button_width = (self.SCREEN_WIDTH - 40) // 3
-        
-        # Braking mode section
-        self.brain.screen.set_pen_color(Color.WHITE)
-        self.brain.screen.set_cursor(5, 13)
-        self.brain.screen.print("Braking Mode")
-        
-        # Braking mode buttons
-        modes = [(COAST, "COAST", 6), (BRAKE, "BRAKE", 18), (HOLD, "HOLD", 31)]
-        for i, (mode, name, col) in enumerate(modes):
-            x = 10 + i * (button_width + button_spacing)
-            
-            if RobotState.current_braking_mode == mode:
-                self.brain.screen.set_fill_color(Color.ORANGE)
-            else:
-                self.brain.screen.set_fill_color(Color.TRANSPARENT)
-            
-            self.brain.screen.draw_rectangle(x, content_y, button_width, button_height)
-            self.brain.screen.set_cursor(8, col)
-            self.brain.screen.print(name)
-        
-        # Color detection toggle section
-        content_y += button_height + button_spacing + 20
-        self.brain.screen.set_cursor(11, 10)
-        self.brain.screen.print("Color Detection")
-        
-        content_y += 20
-        
-        # Toggle button
-        is_enabled = str(RobotState.current_alliance_color) != "UNKNOWN"
-        
-        if is_enabled:
-            self.brain.screen.set_fill_color(Color.GREEN)
-            label = "ENABLED"
-            col = 15
-        else:
-            self.brain.screen.set_fill_color(Color.RED)
-            label = "DISABLED"
-            col = 13
-        
-        toggle_width = 200
-        toggle_x = (self.SCREEN_WIDTH - toggle_width) // 2
-        self.brain.screen.draw_rectangle(toggle_x, content_y, toggle_width, button_height)
-        self.brain.screen.set_cursor(15, col)
-        self.brain.screen.print(label)
-    
-    def _check_done_button_press(self, x, y):
-        """Check if the Done button was pressed"""
-        button_y = self.SCREEN_HEIGHT - self.DONE_BUTTON_HEIGHT - 5
-        button_width = 200
-        button_x = (self.SCREEN_WIDTH - button_width) // 2
-        
-        if button_y <= y <= button_y + self.DONE_BUTTON_HEIGHT:
-            if button_x <= x <= button_x + button_width:
-                return True
-        return False
-    
-    def _handle_main_settings_press(self, x, y):
-        """Handle touch input for Main Settings tab"""
-        content_y = self.TAB_HEIGHT + 10
-        button_height = 70
-        button_spacing = 10
-        button_width = (self.SCREEN_WIDTH - 30) // 2
-        
-        # Check side selection (top row)
-        if content_y <= y <= content_y + button_height:
-            if 10 <= x <= 10 + button_width:
-                # LEFT button
-                RobotState.starting_side = Side("LEFT")
-                return True
-            elif 10 + button_width + button_spacing <= x <= self.SCREEN_WIDTH - 10:
-                # RIGHT button
-                RobotState.starting_side = Side("RIGHT")
-                return True
-        
-        # Check alliance color selection (bottom row)
-        content_y += button_height + button_spacing + 20
-        if content_y <= y <= content_y + button_height:
-            if 10 <= x <= 10 + button_width:
-                # BLUE button
-                RobotState.current_alliance_color = AllianceColor("BLUE")
-                self.previous_alliance_color = RobotState.current_alliance_color
-                return True
-            elif 10 + button_width + button_spacing <= x <= self.SCREEN_WIDTH - 10:
-                # RED button
-                RobotState.current_alliance_color = AllianceColor("RED")
-                self.previous_alliance_color = RobotState.current_alliance_color
-                return True
-        
-        return False
-    
-    def _handle_other_configs_press(self, x, y):
-        """Handle touch input for Other Configs tab"""
-        content_y = self.TAB_HEIGHT + 10
-        button_height = 55
-        button_spacing = 10
-        button_width = (self.SCREEN_WIDTH - 40) // 3
-        
-        # Check braking mode buttons
-        if content_y <= y <= content_y + button_height:
-            modes = [COAST, BRAKE, HOLD]
-            for i, mode in enumerate(modes):
-                button_x = 10 + i * (button_width + button_spacing)
-                if button_x <= x <= button_x + button_width:
-                    RobotState.current_braking_mode = mode
-                    return True
-        
-        # Check color detection toggle
-        content_y += button_height + button_spacing + 20 + 20
-        toggle_width = 200
-        toggle_x = (self.SCREEN_WIDTH - toggle_width) // 2
-        
-        if content_y <= y <= content_y + button_height:
-            if toggle_x <= x <= toggle_x + toggle_width:
-                # Toggle color detection
-                if str(RobotState.current_alliance_color) == "UNKNOWN":
-                    # Re-enable: restore previous color
-                    RobotState.current_alliance_color = self.previous_alliance_color
-                else:
-                    # Disable: set to UNKNOWN
-                    self.previous_alliance_color = RobotState.current_alliance_color
-                    RobotState.current_alliance_color = AllianceColor("UNKNOWN")
-                return True
-        
-        return False
-    
-    def _check_touch_input(self):
-        """Check for touch input and handle accordingly"""
-        if not self.brain.screen.pressing():
-            return False
-        
-        x = self.brain.screen.x_position()
-        y = self.brain.screen.y_position()
-        
-        # Update last touch time
-        self.last_touch_time = brain.timer.time(SECONDS)
-        
-        # Check if clicking Done button
-        if self._check_done_button_press(x, y):
-            self.selection_complete = True
-            # Wait for release to prevent multiple triggers
-            while self.brain.screen.pressing():
-                wait(20, MSEC)
-            return True
-        
-        # Check if clicking on tabs
-        tab_width, tab_height = self._calculate_tab_dimensions()
-        if y <= tab_height:
-            # Clicking on tab bar
-            tab_index = x // tab_width
-            if 0 <= tab_index < len(self.TABS):
-                if tab_index != self.current_tab:
-                    self.current_tab = tab_index
-                    self._draw_screen()
-            return False
-        
-        # Handle press in current tab's content area
-        redraw_needed = False
-        if self.current_tab == 0:
-            redraw_needed = self._handle_main_settings_press(x, y)
-        elif self.current_tab == 1:
-            redraw_needed = self._handle_other_configs_press(x, y)
-        
-        if redraw_needed:
-            self._draw_screen()
-            # Wait for release to prevent multiple triggers
-            while self.brain.screen.pressing():
-                wait(20, MSEC)
-        
-        return False
-    
-    def _draw_screen(self):
-        """Draw the complete screen with tabs and current content"""
+
+        button = self.Button(tab="global", label="DONE", x=(self.SCREEN_WIDTH - 200) // 2,
+                                y=self.SCREEN_HEIGHT - self.DONE_BUTTON_HEIGHT - 5,
+                                width=200, height=self.DONE_BUTTON_HEIGHT, fill_color=Color.PURPLE, pen_color=Color.WHITE)
+        button.draw(self.brain)
+        button.set_callback(lambda: setattr(self, 'thread_running', False), self.render)
+
+    def render(self):
+        """Render the entire configuration screen"""
         self.brain.screen.clear_screen()
-        self.brain.screen.set_pen_width(2)
         
         # Draw tabs
         self._draw_tabs()
         
         # Draw current tab content
-        if self.TABS[self.current_tab]["draw_func"]:
-            self.TABS[self.current_tab]["draw_func"]()
+        for tab in self.tabs:
+            if tab["name"] == self.current_tab:
+                tab["draw_func"]()
+                break
         
         # Draw Done button
         self._draw_done_button()
+
+        self.time_since_last_render = self.brain.timer.time(SECONDS)
+    
+    def _draw_main_settings_tab(self):
+        """Draw the Main Settings tab content"""
+        
+        # Starting Side Title
+        text = "Starting Side"
+        self.brain.screen.set_cursor(*self._calculate_center_for_text(self.SCREEN_WIDTH // 2, self.TAB_HEIGHT + 10, text))
+        self.brain.screen.set_pen_color(Color.WHITE)
+        self.brain.screen.print(text)
+        
+        # Side selection buttons (top row)
+        # LEFT button
+        fill_color = Color.GREEN if RobotState.starting_side == "LEFT" else Color.TRANSPARENT
+        start_left_button = self.Button(
+            tab="Main Settings", label="LEFT", x=10, y=self.TAB_HEIGHT + 30,
+            width=(self.SCREEN_WIDTH - 30) // 2, height=70, fill_color=fill_color, pen_color=Color.WHITE)
+        start_left_button.draw(self.brain)
+        start_left_button.set_callback(lambda: (RobotState.starting_side.set("LEFT")), self.render)
+        
+        # RIGHT button
+        fill_color = Color.GREEN if RobotState.starting_side == "RIGHT" else Color.TRANSPARENT
+        start_right_button = self.Button(
+            tab="Main Settings", label="RIGHT", x=20 + (self.SCREEN_WIDTH - 30) // 2, y=self.TAB_HEIGHT + 30,
+            width=(self.SCREEN_WIDTH - 30) // 2, height=70, fill_color=fill_color, pen_color=Color.WHITE)
+        start_right_button.draw(self.brain)
+        start_right_button.set_callback(lambda: RobotState.starting_side.set("RIGHT"), self.render)
+        
+        # Alliance color title
+        text = "Alliance Color"
+        self.brain.screen.set_cursor(*self._calculate_center_for_text(self.SCREEN_WIDTH // 2, self.TAB_HEIGHT + 120, text))
+        self.brain.screen.set_pen_color(Color.WHITE)
+        self.brain.screen.print(text)
+        
+        # BLUE button
+        fill_color = Color.BLUE if str(RobotState.current_alliance_color) == "BLUE" else Color.TRANSPARENT
+        blue_button = self.Button(
+            tab="Main Settings", label="BLUE", x=10, y=self.TAB_HEIGHT + 140,
+            width=(self.SCREEN_WIDTH - 30) // 2, height=70, fill_color=fill_color, pen_color=Color.WHITE)
+        blue_button.draw(self.brain)
+        blue_button.set_callback(lambda: RobotState.current_alliance_color.set("BLUE"), self.render)
+        
+        # RED button
+        fill_color = Color.RED if str(RobotState.current_alliance_color) == "RED" else Color.TRANSPARENT
+        red_button = self.Button(
+            tab="Main Settings", label="RED", x=20 + (self.SCREEN_WIDTH - 30) // 2, y=self.TAB_HEIGHT + 140,
+            width=(self.SCREEN_WIDTH - 30) // 2, height=70, fill_color=fill_color, pen_color=Color.WHITE)
+        red_button.draw(self.brain)
+        red_button.set_callback(lambda: RobotState.current_alliance_color.set("RED"), self.render)
+    
+    def _draw_other_configs_tab(self):
+        """Draw the Other Configs tab content"""
+        pass
+
+        # Worry about this later
+    
+        # content_y = self.TAB_HEIGHT + 10
+        # button_height = 55
+        # button_spacing = 10
+        # button_width = (self.SCREEN_WIDTH - 40) // 3
+        
+        # # Braking mode section
+        # self.brain.screen.set_pen_color(Color.WHITE)
+        # self.brain.screen.set_cursor(5, 13)
+        # self.brain.screen.print("Braking Mode")
+        
+        # # Braking mode buttons
+        # modes = [(COAST, "COAST", 6), (BRAKE, "BRAKE", 18), (HOLD, "HOLD", 31)]
+        # index = 0
+        # for (mode, name, col) in modes:
+        #     x = 10 + index * (button_width + button_spacing)
+            
+        #     if RobotState.current_braking_mode == mode:
+        #         self.brain.screen.set_fill_color(Color.ORANGE)
+        #     else:
+        #         self.brain.screen.set_fill_color(Color.TRANSPARENT)
+            
+        #     self.brain.screen.draw_rectangle(x, content_y, button_width, button_height)
+        #     self.brain.screen.set_cursor(8, col)
+        #     self.brain.screen.print(name)
+
+        #     index += 1
+        
+        # # Color detection toggle section
+        # content_y += button_height + button_spacing + 20
+        # self.brain.screen.set_cursor(11, 10)
+        # self.brain.screen.print("Color Detection")
+        
+        # content_y += 20
+        
+        # # Toggle button
+        # is_enabled = str(RobotState.current_alliance_color) != "UNKNOWN"
+        
+        # if is_enabled:
+        #     self.brain.screen.set_fill_color(Color.GREEN)
+        #     label = "ENABLED"
+        #     col = 15
+        # else:
+        #     self.brain.screen.set_fill_color(Color.RED)
+        #     label = "DISABLED"
+        #     col = 13
+        
+        # toggle_width = 200
+        # toggle_x = (self.SCREEN_WIDTH - toggle_width) // 2
+        # self.brain.screen.draw_rectangle(toggle_x, content_y, toggle_width, button_height)
+        # self.brain.screen.set_cursor(15, col)
+        # self.brain.screen.print(label)
     
     def _should_exit(self):
         """Check if we should exit the configuration screen"""
-        # Exit if Done button was pressed
-        if self.selection_complete:
-            return True
-        
         # Check if competition mode has started
         mode_started = self.comp.is_autonomous() or self.comp.is_driver_control()
         
         if mode_started:
-            # If mode started, check 5 second timeout since last touch
-            current_time = brain.timer.time(SECONDS)
-            time_since_touch = current_time - self.last_touch_time
+            if self.time_since_last_render is None:
+                return False  # First render hasn't happened yet
             
-            if time_since_touch >= 5.0:
+            # If mode started, check 5 second timeout since last touch
+            current_time = self.brain.timer.time(SECONDS)
+            time_since_render = current_time - self.time_since_last_render
+            if time_since_render >= 5.0:
                 return True
         
         return False
@@ -1345,20 +1354,13 @@ class ConfigurationScreen:
         self.logger.brain_logging_enabled = False
         
         # Draw initial screen
-        self._draw_screen()
-        
-        # Initialize last touch time
-        self.last_touch_time = brain.timer.time(SECONDS)
+        self.render()
         
         # Log to controller only
         self.logger.info("Configuration screen active", ScreenTarget.CONTROLLER)
         
         # Keep the screen interactive
         while self.thread_running:
-            if self._check_touch_input():
-                # Done button was pressed
-                break
-            
             if self._should_exit():
                 break
             
@@ -1366,7 +1368,12 @@ class ConfigurationScreen:
         
         # Re-enable brain logging
         self.logger.brain_logging_enabled = True
-        
+        self.logger.brain_line = 1
+
+        # Reset text styles
+        self.brain.screen.set_cursor(0, 0)
+        self.brain.screen.set_fill_color(Color.TRANSPARENT)
+
         # Clear screen and log final settings
         self.brain.screen.clear_screen()
         self.logger.info("Config complete - Side: " + str(RobotState.starting_side) + " Color: " + str(RobotState.current_alliance_color))
@@ -1381,10 +1388,7 @@ class ConfigurationScreen:
 
 def pre_auton():
     """Called before autonomous - setup configuration screen"""
-    # Don't use logger here since it will interfere with the screen
     pass
-
-
 
 
 # =============================================================================
@@ -1402,6 +1406,8 @@ logger.info("Battery: " + battery_voltage + "V " + battery_current + "A")
 
 # Create competition instance
 comp = Competition(DriverControl.start, Autonomous.start)
+
+pre_auton()
 
 # Start configuration screen in a separate thread
 # This runs regardless of competition mode - in testing, it will show briefly
