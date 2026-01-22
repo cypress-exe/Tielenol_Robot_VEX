@@ -1013,7 +1013,7 @@ class ConfigurationScreen:
     TAB_HEIGHT = 40
     DONE_BUTTON_HEIGHT = 50
 
-    buttons: dict[str, list[ConfigurationScreen.Button]] = {}
+    buttons: list[ConfigurationScreen.Button] = []
 
     
     
@@ -1039,12 +1039,11 @@ class ConfigurationScreen:
         brain_instance.screen.pressed(self._touch_callback)
 
     class Button:
-        def __init__(self, tab, label, x, y, width, height, fill_color=Color.BLACK, pen_color=Color.WHITE):
+        def __init__(self, label, x, y, width, height, fill_color=Color.BLACK, pen_color=Color.WHITE):
             """
             Initialize a button with position and dimensions
             
             Args:
-                tab: Tab identifier (e.g., tab name)
                 label: Text label of the button
                 x: X coordinate of the button
                 y: Y coordinate of the button
@@ -1054,7 +1053,6 @@ class ConfigurationScreen:
                 pen_color: Pen color for the button border (default: Color.WHITE)
             """
 
-            self.tab = tab
             self.label = label
             self.x = x
             self.y = y
@@ -1067,15 +1065,13 @@ class ConfigurationScreen:
             self.render_callback = None
             
             # Add button to the global button list
-            if tab not in ConfigurationScreen.buttons:
-                ConfigurationScreen.buttons[tab] = []
-
-            ConfigurationScreen.buttons[tab].append(self)
+            if self not in ConfigurationScreen.buttons:
+                ConfigurationScreen.buttons.append(self)
 
         def __del__(self):
             """Remove button from the global button list upon deletion"""
-            if self.tab in ConfigurationScreen.buttons:
-                ConfigurationScreen.buttons[self.tab].remove(self)
+            if self in ConfigurationScreen.buttons:
+                ConfigurationScreen.buttons.remove(self)
 
         def is_pressed(self, touch_x, touch_y):
             """
@@ -1148,18 +1144,13 @@ class ConfigurationScreen:
         y = self.brain.screen.y_position()
 
         # Check if any button in the current tab is pressed
-        if self.current_tab in ConfigurationScreen.buttons:
-            for button in ConfigurationScreen.buttons[self.current_tab]:
-                if button.is_pressed(x, y):
-                    if hasattr(button, 'callback'):
-                        button.run_callback()
+        for button in ConfigurationScreen.buttons:
+            if button.is_pressed(x, y):
+                button.run_callback()
 
-        # Also check buttons in the "global" tab (e.g., Done button)
-        if "global" in ConfigurationScreen.buttons:
-            for button in ConfigurationScreen.buttons["global"]:
-                if button.is_pressed(x, y):
-                    if hasattr(button, 'callback'):
-                        button.run_callback()
+    def _remove_all_button_references(self):
+        """Remove all buttons from the screen and clear the button list"""
+        ConfigurationScreen.buttons.clear()
 
     def _calculate_tab_dimensions(self):
         """Calculate tab button dimensions based on number of tabs"""
@@ -1193,7 +1184,7 @@ class ConfigurationScreen:
 
             fill_color = Color.WHITE if tab["name"] == self.current_tab else Color.BLACK
 
-            button = self.Button(tab=tab["name"], label=tab["name"], x=x, y=0, width=tab_width, 
+            button = self.Button(label=tab["name"], x=x, y=0, width=tab_width, 
                                  height=tab_height, fill_color=fill_color, pen_color=Color.WHITE)
             button.draw(self.brain)
             button.set_callback(lambda tab_name=tab["name"]: setattr(self, "current_tab", tab_name), self.render)
@@ -1201,7 +1192,7 @@ class ConfigurationScreen:
     def _draw_done_button(self):
         """Draw the Done button at the bottom of the screen"""
 
-        button = self.Button(tab="global", label="DONE", x=(self.SCREEN_WIDTH - 200) // 2,
+        button = self.Button(label="DONE", x=(self.SCREEN_WIDTH - 200) // 2,
                                 y=self.SCREEN_HEIGHT - self.DONE_BUTTON_HEIGHT - 5,
                                 width=200, height=self.DONE_BUTTON_HEIGHT, fill_color=Color.PURPLE, pen_color=Color.WHITE)
         button.draw(self.brain)
@@ -1210,6 +1201,9 @@ class ConfigurationScreen:
     def render(self):
         """Render the entire configuration screen"""
         self.brain.screen.clear_screen()
+
+        # Clear previous buttons if any
+        self._remove_all_button_references()
         
         # Draw tabs
         self._draw_tabs()
@@ -1238,15 +1232,15 @@ class ConfigurationScreen:
         # LEFT button
         fill_color = Color.GREEN if RobotState.starting_side == "LEFT" else Color.TRANSPARENT
         start_left_button = self.Button(
-            tab="Main Settings", label="LEFT", x=10, y=self.TAB_HEIGHT + 30,
-            width=(self.SCREEN_WIDTH - 30) // 2, height=70, fill_color=fill_color, pen_color=Color.WHITE)
+            label="LEFT", x=10, y=self.TAB_HEIGHT + 30, width=(self.SCREEN_WIDTH - 30) // 2, 
+            height=70, fill_color=fill_color, pen_color=Color.WHITE)
         start_left_button.draw(self.brain)
         start_left_button.set_callback(lambda: (RobotState.starting_side.set("LEFT")), self.render)
         
         # RIGHT button
         fill_color = Color.GREEN if RobotState.starting_side == "RIGHT" else Color.TRANSPARENT
         start_right_button = self.Button(
-            tab="Main Settings", label="RIGHT", x=20 + (self.SCREEN_WIDTH - 30) // 2, y=self.TAB_HEIGHT + 30,
+            label="RIGHT", x=20 + (self.SCREEN_WIDTH - 30) // 2, y=self.TAB_HEIGHT + 30,
             width=(self.SCREEN_WIDTH - 30) // 2, height=70, fill_color=fill_color, pen_color=Color.WHITE)
         start_right_button.draw(self.brain)
         start_right_button.set_callback(lambda: RobotState.starting_side.set("RIGHT"), self.render)
@@ -1260,15 +1254,15 @@ class ConfigurationScreen:
         # BLUE button
         fill_color = Color.BLUE if str(RobotState.current_alliance_color) == "BLUE" else Color.TRANSPARENT
         blue_button = self.Button(
-            tab="Main Settings", label="BLUE", x=10, y=self.TAB_HEIGHT + 140,
-            width=(self.SCREEN_WIDTH - 30) // 2, height=70, fill_color=fill_color, pen_color=Color.WHITE)
+            label="BLUE", x=10, y=self.TAB_HEIGHT + 140, width=(self.SCREEN_WIDTH - 30) // 2, 
+            height=70, fill_color=fill_color, pen_color=Color.WHITE)
         blue_button.draw(self.brain)
         blue_button.set_callback(lambda: RobotState.current_alliance_color.set("BLUE"), self.render)
         
         # RED button
         fill_color = Color.RED if str(RobotState.current_alliance_color) == "RED" else Color.TRANSPARENT
         red_button = self.Button(
-            tab="Main Settings", label="RED", x=20 + (self.SCREEN_WIDTH - 30) // 2, y=self.TAB_HEIGHT + 140,
+            label="RED", x=20 + (self.SCREEN_WIDTH - 30) // 2, y=self.TAB_HEIGHT + 140,
             width=(self.SCREEN_WIDTH - 30) // 2, height=70, fill_color=fill_color, pen_color=Color.WHITE)
         red_button.draw(self.brain)
         red_button.set_callback(lambda: RobotState.current_alliance_color.set("RED"), self.render)
@@ -1352,7 +1346,7 @@ class ConfigurationScreen:
         """Main thread function for the configuration screen"""
         # Disable brain logging while config screen is active
         self.logger.brain_logging_enabled = False
-        
+
         # Draw initial screen
         self.render()
         
