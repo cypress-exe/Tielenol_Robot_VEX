@@ -155,6 +155,7 @@ class RobotState:
     current_alliance_color = AllianceColor("red")  # Default alliance color: 'RED' or 'BLUE'
     current_braking_mode = COAST # Braking mode for drivetrain motors: BRAKE, COAST, or HOLD
     starting_side = Side("RIGHT") # Starting side for autonomous: 'LEFT' or 'RIGHT'
+    auton_mode = "COMPLEX"  # "COMPLEX" or "SIMPLE"
     
 
 
@@ -766,14 +767,23 @@ class Autonomous:
             # Example autonomous routine with logging
             logger.info("Starting autonomous routine")
 
-            current_alliance_color = RobotState.current_alliance_color = AllianceColor("unknown")  # Set to unknown to disable color-based rejection
-
-            if RobotState.starting_side == "RIGHT":
-                cls.run_right_side_routine()
+            if RobotState.auton_mode == "SIMPLE":
+                logger.info("Running simple autonomous routine")
+                drivetrain.drive_for_blind(100, 0, 50)
+                logger.info("Simple autonomous routine completed")
             else:
-                cls.run_left_side_routine()
+                logger.info("Running complex autonomous routine")
 
-            RobotState.current_alliance_color = current_alliance_color  # Restore alliance color
+                current_alliance_color = RobotState.current_alliance_color = AllianceColor("unknown")  # Set to unknown to disable color-based rejection
+
+                if RobotState.starting_side == "RIGHT":
+                    cls.run_right_side_routine()
+                else:
+                    cls.run_left_side_routine()
+
+                RobotState.current_alliance_color = current_alliance_color  # Restore alliance color
+
+                logger.info("Complex autonomous routine completed")
 
             logger.info("Autonomous routine completed successfully")
 
@@ -1018,6 +1028,126 @@ class DriverControl:
 # CONFIGURATION SCREENS
 # =============================================================================
 
+# Components
+class Label:
+    """Label for displaying text on the screen"""
+    def __init__(self, text, x, y, color=Color.WHITE):
+        """
+        Initialize a label with text and position
+        
+        Args:
+            text: Text to display
+            x: X coordinate
+            y: Y coordinate
+            color: Text color (default: Color.WHITE)
+        """
+        self.text = text
+        self.x = x
+        self.y = y
+        self.color = color
+    
+    def draw(self, brain_instance: Brain):
+        """Draw the label on the brain screen"""
+        brain_instance.screen.set_pen_color(self.color)
+        text_x, text_y = ConfigurationScreen._calculate_center_for_text(brain_instance, self.x, self.y, self.text)
+        brain_instance.screen.print_at(self.text, x=text_x, y=text_y)
+
+class Button:
+    def __init__(self, parent: ConfigurationScreen, tab_name, label, x, y, width, height, fill_color=Color.BLACK, pen_color=Color.WHITE):
+        """
+        Initialize a button with position and dimensions
+        
+        Args:
+            parent: Parent ConfigurationScreen instance
+            tab_name: Name of the tab this button belongs to
+            label: Text label of the button
+            x: X coordinate of the button
+            y: Y coordinate of the button
+            width: Width of the button
+            height: Height of the button
+            fill_color: Fill color of the button (default: Color.BLACK)
+            pen_color: Pen color for the button border (default: Color.WHITE)
+        """
+
+        self.parent = parent
+        self.tab_name = tab_name
+        self.label = label
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.fill_color = fill_color
+        self.pen_color = pen_color
+
+        self.callback = None
+        self.render_callback = None
+        
+        # Add button to the parent's button dictionary
+        if tab_name not in parent.buttons:
+            parent.buttons[tab_name] = []
+        parent.buttons[tab_name].append(self)
+
+    def is_pressed(self, touch_x, touch_y):
+        """
+        Check if the button is pressed based on touch coordinates
+
+        Args:
+            touch_x: X coordinate of the touch
+            touch_y: Y coordinate of the touch
+        """
+        return (self.x <= touch_x <= self.x + self.width) and (self.y <= touch_y <= self.y + self.height)
+    
+    def draw(self, brain_instance: Brain, **kwargs):
+        """
+        Draw the button on the brain screen with specified colors and label
+
+        Args:
+            brain_instance: Brain instance to draw on
+            **kwargs: Optional keyword arguments for fill_color, pen_color, and label
+        """
+        
+        fill_color = self.fill_color
+        pen_color = self.pen_color
+        label = self.label
+
+        # Override colors and label if provided in kwargs
+        fill_color = kwargs.get("fill_color", fill_color)
+        pen_color = kwargs.get("pen_color", pen_color)
+        label = kwargs.get("label", label)           
+
+        # Draw Rectangle
+        brain_instance.screen.set_fill_color(fill_color)
+        brain_instance.screen.set_pen_color(pen_color)
+        brain_instance.screen.draw_rectangle(self.x, self.y, self.width, self.height)
+
+        # Add text
+        if label is not None:
+            text_color = Color.WHITE if fill_color != Color.WHITE else Color.BLACK
+            brain_instance.screen.set_pen_color(text_color)
+            center_x, center_y = ConfigurationScreen._calculate_center_for_rect(self.x, self.y, self.width, self.height)
+            text_x, text_y = ConfigurationScreen._calculate_center_for_text(brain_instance, center_x, center_y, label)
+            brain_instance.screen.print_at(label, x=text_x, y=text_y)
+
+    def set_callback(self, callback, render_callback):
+        """
+        Set a callback function to be called when the button is pressed
+
+        Args:
+            callback: Function to call when the button is pressed
+            render_callback: Function to call to re-render the screen after callback. Set to None to skip re-rendering.
+        """
+        self.callback = callback
+        self.render_callback = render_callback
+        
+    def run_callback(self):
+        """Run the button's callback function if it exists"""
+        if self.callback is not None:
+            self.callback()
+        
+        if self.render_callback is not None:
+            self.render_callback()
+
+
 class ConfigurationScreen:
     """Dynamic tabbed configuration screen for pre-autonomous setup"""
 
@@ -1034,125 +1164,6 @@ class ConfigurationScreen:
     TAB_HEIGHT = 30
     DONE_BUTTON_HEIGHT = 30
     
-    # Components
-    class Label:
-        """Label for displaying text on the screen"""
-        def __init__(self, text, x, y, color=Color.WHITE):
-            """
-            Initialize a label with text and position
-            
-            Args:
-                text: Text to display
-                x: X coordinate
-                y: Y coordinate
-                color: Text color (default: Color.WHITE)
-            """
-            self.text = text
-            self.x = x
-            self.y = y
-            self.color = color
-        
-        def draw(self, brain_instance: Brain):
-            """Draw the label on the brain screen"""
-            brain_instance.screen.set_pen_color(self.color)
-            text_x, text_y = ConfigurationScreen._calculate_center_for_text(brain_instance, self.x, self.y, self.text)
-            brain_instance.screen.print_at(self.text, x=text_x, y=text_y)
-
-    class Button:
-        def __init__(self, parent: ConfigurationScreen, tab_name, label, x, y, width, height, fill_color=Color.BLACK, pen_color=Color.WHITE):
-            """
-            Initialize a button with position and dimensions
-            
-            Args:
-                parent: Parent ConfigurationScreen instance
-                tab_name: Name of the tab this button belongs to
-                label: Text label of the button
-                x: X coordinate of the button
-                y: Y coordinate of the button
-                width: Width of the button
-                height: Height of the button
-                fill_color: Fill color of the button (default: Color.BLACK)
-                pen_color: Pen color for the button border (default: Color.WHITE)
-            """
-
-            self.parent = parent
-            self.tab_name = tab_name
-            self.label = label
-            self.x = x
-            self.y = y
-            self.width = width
-            self.height = height
-            self.fill_color = fill_color
-            self.pen_color = pen_color
-
-            self.callback = None
-            self.render_callback = None
-            
-            # Add button to the parent's button dictionary
-            if tab_name not in parent.buttons:
-                parent.buttons[tab_name] = []
-            parent.buttons[tab_name].append(self)
-
-        def is_pressed(self, touch_x, touch_y):
-            """
-            Check if the button is pressed based on touch coordinates
-
-            Args:
-                touch_x: X coordinate of the touch
-                touch_y: Y coordinate of the touch
-            """
-            return (self.x <= touch_x <= self.x + self.width) and (self.y <= touch_y <= self.y + self.height)
-        
-        def draw(self, brain_instance: Brain, **kwargs):
-            """
-            Draw the button on the brain screen with specified colors and label
-
-            Args:
-                brain_instance: Brain instance to draw on
-                **kwargs: Optional keyword arguments for fill_color, pen_color, and label
-            """
-            
-            fill_color = self.fill_color
-            pen_color = self.pen_color
-            label = self.label
-
-            # Override colors and label if provided in kwargs
-            fill_color = kwargs.get("fill_color", fill_color)
-            pen_color = kwargs.get("pen_color", pen_color)
-            label = kwargs.get("label", label)           
-
-            # Draw Rectangle
-            brain_instance.screen.set_fill_color(fill_color)
-            brain_instance.screen.set_pen_color(pen_color)
-            brain_instance.screen.draw_rectangle(self.x, self.y, self.width, self.height)
-
-            # Add text
-            if label is not None:
-                text_color = Color.WHITE if fill_color != Color.WHITE else Color.BLACK
-                brain_instance.screen.set_pen_color(text_color)
-                center_x, center_y = ConfigurationScreen._calculate_center_for_rect(self.x, self.y, self.width, self.height)
-                text_x, text_y = ConfigurationScreen._calculate_center_for_text(brain_instance, center_x, center_y, label)
-                brain_instance.screen.print_at(label, x=text_x, y=text_y)
-    
-        def set_callback(self, callback, render_callback):
-            """
-            Set a callback function to be called when the button is pressed
-
-            Args:
-                callback: Function to call when the button is pressed
-                render_callback: Function to call to re-render the screen after callback. Set to None to skip re-rendering.
-            """
-            self.callback = callback
-            self.render_callback = render_callback
-            
-        def run_callback(self):
-            """Run the button's callback function if it exists"""
-            if self.callback is not None:
-                self.callback()
-            
-            if self.render_callback is not None:
-                self.render_callback()
-
     # Tab Classes. Must implement:
     # - __init__(parent: ConfigurationScreen) method.
     # - draw(brain_instance: Brain) method.
@@ -1162,7 +1173,6 @@ class ConfigurationScreen:
         def __init__(self, parent: ConfigurationScreen):
             self.parent = parent
             self.name = "Main Settings"
-            
 
             margin = 10
             buttons_width = (parent.SCREEN_WIDTH - (2 * margin)) // 2 - margin # 220
@@ -1171,60 +1181,99 @@ class ConfigurationScreen:
             # Create buttons
             row_top = parent.TAB_HEIGHT
             
-            self.left_button = ConfigurationScreen.Button( # 10/480 - 230/480, 40/240 - 110/240
+            self.left_btn = Button( # 10/480 - 230/480, 40/240 - 110/240
                 parent, self.name, "LEFT", margin, row_top + margin,
                 buttons_width, buttons_height, Color.BLACK, Color.WHITE
             )
-            self.left_button.set_callback(lambda: RobotState.starting_side.set("LEFT"), parent.render)
+            self.left_btn.set_callback(lambda: RobotState.starting_side.set("LEFT"), parent.render)
             
-            self.right_button = ConfigurationScreen.Button( # 250/480 - 470/480, 40/240 - 110/240, width: 220, height: 70
+            self.right_btn = Button( # 250/480 - 470/480, 40/240 - 110/240, width: 220, height: 70
                 parent, self.name, "RIGHT", parent.SCREEN_WIDTH - margin - buttons_width, row_top + margin,
                 buttons_width, buttons_height, Color.BLACK, Color.WHITE
             )
-            self.right_button.set_callback(lambda: RobotState.starting_side.set("RIGHT"), parent.render)
+            self.right_btn.set_callback(lambda: RobotState.starting_side.set("RIGHT"), parent.render)
 
             # Next row
             row_top = parent.TAB_HEIGHT + margin + buttons_height + margin
             
-            self.blue_button = ConfigurationScreen.Button( # 10/480 - 230/480, 140/240 - 220/240
+            self.blue_btn = Button( # 10/480 - 230/480, 140/240 - 220/240
                 parent, self.name, "BLUE", margin, row_top + margin,
                 buttons_width, buttons_height, Color.BLACK, Color.WHITE
                 )
-            self.blue_button.set_callback(lambda: RobotState.current_alliance_color.set("BLUE"), parent.render)
+            self.blue_btn.set_callback(lambda: RobotState.current_alliance_color.set("BLUE"), parent.render)
             
-            self.red_button = ConfigurationScreen.Button( # 250/480 - 470/480, 140/240 - 220/240
+            self.red_btn = Button( # 250/480 - 470/480, 140/240 - 220/240
                 parent, self.name, "RED", parent.SCREEN_WIDTH - margin - buttons_width, row_top + margin,
                 buttons_width, buttons_height, Color.BLACK, Color.WHITE
             )
-            self.red_button.set_callback(lambda: RobotState.current_alliance_color.set("RED"), parent.render)
+            self.red_btn.set_callback(lambda: RobotState.current_alliance_color.set("RED"), parent.render)
         
         def draw(self, brain_instance: Brain):
             """Draw the tab content with current state"""
             
             # Draw buttons with state-dependent colors
             left_color = Color.GREEN if RobotState.starting_side == "LEFT" else Color.TRANSPARENT
-            self.left_button.draw(brain_instance, fill_color=left_color)
+            self.left_btn.draw(brain_instance, fill_color=left_color)
             
             right_color = Color.GREEN if RobotState.starting_side == "RIGHT" else Color.TRANSPARENT
-            self.right_button.draw(brain_instance, fill_color=right_color)
+            self.right_btn.draw(brain_instance, fill_color=right_color)
             
             blue_color = Color.BLUE if str(RobotState.current_alliance_color) == "BLUE" else Color.TRANSPARENT
-            self.blue_button.draw(brain_instance, fill_color=blue_color)
+            self.blue_btn.draw(brain_instance, fill_color=blue_color)
             
             red_color = Color.RED if str(RobotState.current_alliance_color) == "RED" else Color.TRANSPARENT
-            self.red_button.draw(brain_instance, fill_color=red_color)
+            self.red_btn.draw(brain_instance, fill_color=red_color)
     
     class OtherConfigsTab:
         """Tab for other configurations (currently unimplemented)"""
-        def __init__(self, parent):
+        def __init__(self, parent: ConfigurationScreen):
             self.parent = parent
             self.name = "Other Configs"
-            self.labels = []
-            # No buttons yet
-        
+
+            margin = 10
+            
+            y_offset = parent.TAB_HEIGHT + margin
+            self.title_label = Label(
+                "Other Robot Configurations",
+                x=parent.SCREEN_WIDTH // 2,
+                y=y_offset
+            )
+            
+            y_offset += 30
+            self.auton_mode_btn = self.AutonModeButton(
+                parent, self.name, margin, y_offset
+            )
+
+        class AutonModeButton(Button):
+            def __init__(self, config_screen: ConfigurationScreen, tab_name, margin, y_offset):
+                super().__init__(
+                    config_screen, tab_name, self.get_name(),
+                    margin, y_offset,
+                    config_screen.SCREEN_WIDTH - (2 * margin), 50
+                )
+                self.set_callback(self.auton_mode_btn_callback, config_screen.render)
+
+            def get_name(self):
+                return "Auton Mode: " + str(RobotState.auton_mode)
+
+            def auton_mode_btn_color(self):
+                """Get the fill color for the auton mode button based on current selection"""
+                return Color.GREEN if RobotState.auton_mode == "COMPLEX" else Color.RED
+            
+            def auton_mode_btn_callback(self):
+                """Callback to toggle the auton mode"""
+                if RobotState.auton_mode == "SIMPLE":
+                    setattr(RobotState, "auton_mode", "COMPLEX")
+                else:
+                    setattr(RobotState, "auton_mode", "SIMPLE")
+
+            def run_draw(self, brain_instance: Brain):
+                self.draw(brain_instance, label=self.get_name(), fill_color=self.auton_mode_btn_color())
+
         def draw(self, brain_instance: Brain):
             """Draw the tab content (currently empty)"""
-            pass
+            self.title_label.draw(brain_instance)
+            self.auton_mode_btn.run_draw(brain_instance)
     
     # ConfigurationScreen Methods
     def __init__(self, brain_instance: Brain, logger_instance: Logger, competition_instance):
@@ -1235,7 +1284,7 @@ class ConfigurationScreen:
         self.current_tab = "Main Settings"
         self.thread_running = True
         self.time_since_last_render = None
-        self.buttons: dict[str, list[ConfigurationScreen.Button]] = {}
+        self.buttons: dict[str, list[Button]] = {}
         
         # Create tab instances
         self.tab_instances = [
@@ -1259,7 +1308,7 @@ class ConfigurationScreen:
         
         for i, tab_instance in enumerate(self.tab_instances):
             x = i * tab_width
-            button = self.Button(
+            button = Button(
                 self, "TABS", tab_instance.name, x, 0, tab_width,
                 self.TAB_HEIGHT, Color.BLACK, Color.WHITE
             )
@@ -1267,7 +1316,7 @@ class ConfigurationScreen:
     
     def _init_global_buttons(self):
         """Initialize global buttons (Done button)"""
-        done_button = self.Button(
+        done_button = Button(
             self, "GLOBAL", "DONE", (self.SCREEN_WIDTH - 200) // 2,
             self.SCREEN_HEIGHT - self.DONE_BUTTON_HEIGHT,
             200, self.DONE_BUTTON_HEIGHT, Color.PURPLE, Color.WHITE
