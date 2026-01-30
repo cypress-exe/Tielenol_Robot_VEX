@@ -124,17 +124,14 @@ class ControllerSettings:
     
     FORWARD_BACKWARD_AXIS = 3
     TURN_AXIS = 1
-    # =============================== Autonomous ===============================
-    LEFT_SIDE_SELECTION_BUTTON = "Left"
-    RIGHT_SIDE_SELECTION_BUTTON = "Right"
 
     # ============================== Drivercontrol ==============================
-    STRAFE_LEFT_BUTTON = "Left"
+    STRAFE_LEFT_BUTTON = "Down"
     STRAFE_RIGHT_BUTTON = "Right"
 
     # Fine Control buttons
     FC_FORWARD_BUTTON = "Up"
-    FC_BACKWARD_BUTTON = "Down"
+    FC_BACKWARD_BUTTON = "Left"
 
     INTAKE_BUTTON = 'R1'
     OUTPUT_LOW_BUTTON = 'R2'
